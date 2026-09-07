@@ -162,6 +162,55 @@ Early versions of gecit crashed the VM with an `SVGA: Invalid PA range` hypervis
 
 ---
 
+## 🛠️ Build, Test & CI/CD Pipeline
+
+Omacorn includes an automated developer workflow and GitHub Actions CI/CD pipeline:
+
+```bash
+# Developer Workflow
+make test       # Runs unit tests with race detector (go test -v -race ./...)
+make lint       # Formats and inspects code (gofmt, go vet)
+make static     # Builds stripped, zero-dependency static binary for current arch
+make cross      # Cross-compiles static binaries for both linux/amd64 and linux/arm64
+make install    # Installs to ~/.local/bin and configures dpipe alias
+```
+
+- **GitHub Actions CI (`.github/workflows/ci.yml`)**: Automatically triggers on PRs and pushes to `master`, enforcing `gofmt`, `go vet`, race tests, and cross-compilation.
+- **GitHub Actions CD (`.github/workflows/release.yml`)**: Triggers on version tags (`v*`), compiling stripped static binaries for AMD64 & ARM64, generating SHA256 checksums, and publishing GitHub release archives.
+
+---
+
+## 📦 Multi-Machine Deployment (Distributed Sovereign Daemons)
+
+Deploy Omacorn across all your machines—whether bare metal CachyOS, immutable Fedora Atomic (RakuOS), or Debian/Ubuntu (PikaOS):
+
+### Option 1: One-Liner Remote Deployment
+```bash
+# Clone repository and execute distro-aware installer
+git clone git@github.com:oomaya/Omacorn.git && cd Omacorn && ./scripts/install.sh
+```
+
+### Option 2: Immutable / Atomic OS (RakuOS / Fedora Atomic / Silverblue)
+On atomic operating systems where `/usr` is read-only and local compilers are segregated into containers:
+1. Omacorn installs strictly into user-space (`~/.local/bin/omacorn`), requiring **zero root modifications or rpm-ostree layering**.
+2. Run `make static` or download the pre-compiled `omacorn-linux-amd64` binary.
+3. Enable user-space engine:
+   ```bash
+   omacorn start spoofdpi
+   ```
+
+### Option 3: Debian / Ubuntu / PikaOS
+1. Install prerequisites:
+   ```bash
+   sudo apt update && sudo apt install -y libcap2-bin curl
+   ```
+2. Run installer:
+   ```bash
+   ./scripts/install.sh
+   ```
+
+---
+
 ## 🔧 Emergency Troubleshooting
 
 If you ever encounter network hiccups or want to reset state:
