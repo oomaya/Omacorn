@@ -46,6 +46,14 @@ omacorn stop all                # Halts all active engines
 # Live latency probe
 omacorn test
 
+# Manage split-tunneling & proxy bypass exclusions
+omacorn exclude list
+omacorn exclude add example.com
+omacorn exclude remove example.com
+
+# Run an app completely isolated from proxy variables (direct mode)
+omacorn run-clean telegram-desktop
+
 # Stream live service logs
 omacorn logs spoofdpi
 omacorn logs gecit
@@ -98,10 +106,11 @@ Omacorn is wired directly into your decoupled GNU Stow packages under `~/dotfile
 ### 1. The Desktop Session Bus (`environment.d`)
 Configured at `~/.config/environment.d/20-omacorn-proxy.conf`:
 ```ini
+# Routes HTTP/HTTPS traffic through local SpoofDPI daemon (port 8080)
+# Notice: all_proxy is deliberately omitted to prevent hijacking raw TCP / non-HTTP protocols (e.g. Telegram MTProto)
 http_proxy=http://127.0.0.1:8080
 https_proxy=http://127.0.0.1:8080
-all_proxy=http://127.0.0.1:8080
-no_proxy=localhost,127.0.0.1,*.local,*.google.com,accounts.google.com,googleapis.com
+no_proxy=localhost,127.0.0.1,::1,*.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,*.google.com,accounts.google.com,googleapis.com,gstatic.com,*.telegram.org,*.t.me,*.telegram.me,*.tdesktop.com,91.108.4.0/22,91.108.8.0/22,91.108.12.0/22,91.108.16.0/22,91.108.56.0/22,149.154.160.0/20,149.154.164.0/22,149.154.168.0/22,149.154.172.0/22,2001:b28:f23d::/48,2001:b28:f23f::/48,2001:67c:4e8::/48
 ```
 
 ### 2. Hyprland Integration (`hyprland.lua`)
@@ -109,15 +118,14 @@ Hyprland natively exports the proxy environment to all child windows spawned via
 ```lua
 hl.env("http_proxy", "http://127.0.0.1:8080")
 hl.env("https_proxy", "http://127.0.0.1:8080")
-hl.env("all_proxy", "http://127.0.0.1:8080")
-hl.env("no_proxy", "localhost,127.0.0.1,*.local,*.google.com,accounts.google.com,googleapis.com")
+-- all_proxy is omitted to allow direct MTProto connections for Telegram & raw sockets
 ```
 
 ### 3. Brave Browser Native Flags (`brave-origin-flags.conf`)
-Brave permanently routes through Omacorn on launch while protecting Google Auth:
+Brave permanently routes through Omacorn on launch while protecting Google Auth and loopback:
 ```text
 --proxy-server=http://127.0.0.1:8080
---proxy-bypass-list=<-loopback>;localhost;*.google.com;accounts.google.com
+--proxy-bypass-list=<-loopback>;localhost;*.google.com;accounts.google.com;*.telegram.org
 ```
 
 ### 4. Interactive Shells (`.bashrc`)
@@ -126,8 +134,6 @@ Every new terminal session immediately sources the bridge:
 if [[ -f ~/.config/environment.d/20-omacorn-proxy.conf ]]; then
     export http_proxy="http://127.0.0.1:8080"
     export https_proxy="http://127.0.0.1:8080"
-    export all_proxy="http://127.0.0.1:8080"
-    export no_proxy="localhost,127.0.0.1,*.local,*.google.com,accounts.google.com,googleapis.com"
 fi
 ```
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -42,6 +43,10 @@ func main() {
 		handleStatus(arg)
 	case "proxy":
 		handleProxy(arg)
+	case "exclude", "exclusions", "bypass":
+		handleExclude(os.Args[2:])
+	case "run-clean", "clean-run", "spawn-direct":
+		handleRunClean(os.Args[2:])
 	case "test":
 		handleTest(arg)
 	case "logs":
@@ -87,10 +92,12 @@ Usage:
   %s status  [--json]             Show flight status board (or JSON for Quickshell/Waybar)
   %s test    [spoofdpi|gecit]     Run live latency & handshake probe
   %s proxy   [on|off|toggle]      Manage desktop environment proxy (~/.config/environment.d)
+  %s exclude [list|add|remove|reset] Manage split-tunneling & proxy bypass exclusions
+  %s run-clean <command...>       Execute an app completely isolated from proxy env vars
   %s logs    [spoofdpi|gecit]     Tail journal logs
   %s install [spoofdpi|gecit|all] Install systemd service(s)
   %s cleanup                      Emergency cleanup for eBPF and services
-`, version, bin, bin, bin, bin, bin, bin, bin, bin, bin)
+`, version, bin, bin, bin, bin, bin, bin, bin, bin, bin, bin, bin)
 }
 
 func handleInstall(target string) {
@@ -284,5 +291,133 @@ func handleCleanup() {
 		fmt.Printf("Cleanup note: %s (%v)\n", out, err)
 	} else {
 		fmt.Println("Emergency cleanup executed successfully.")
+	}
+}
+
+func handleExclude(args []string) {
+	subcmd := "list"
+	if len(args) > 0 {
+		subcmd = strings.ToLower(args[0])
+	}
+
+	switch subcmd {
+	case "list", "":
+		custom, _ := engine.LoadUserExclusions()
+		all := engine.GetAllExclusions()
+		fmt.Println("================================================================")
+		fmt.Printf("      🦄 OMACORN v%s — Split-Tunnel Exclusions & Bypass List\n", version)
+		fmt.Println("================================================================")
+		fmt.Printf("Default Exclusions: %d rules (Google Auth, Telegram MTProto, RFC1918)\n", len(engine.DefaultExclusions))
+		fmt.Printf("Custom Exclusions:  %d rules (~/.config/omacorn/exclusions.conf)\n", len(custom))
+		fmt.Println("----------------------------------------------------------------")
+		fmt.Println("Active Rules:")
+		for i, rule := range all {
+			ruleType := "default"
+			for _, c := range custom {
+				if c == rule {
+					ruleType = "custom"
+					break
+				}
+			}
+			fmt.Printf("  %2d. [%-7s] %s\n", i+1, ruleType, rule)
+		}
+		fmt.Println("================================================================")
+		fmt.Println("Commands:")
+		fmt.Println("  omacorn exclude add <domain|ip|cidr>")
+		fmt.Println("  omacorn exclude remove <domain|ip|cidr>")
+		fmt.Println("  omacorn exclude reset")
+		fmt.Println("================================================================")
+
+	case "add":
+		if len(args) < 2 {
+			fmt.Println("Usage: omacorn exclude add <domain|ip|cidr>")
+			return
+		}
+		pattern := args[1]
+		if err := engine.AddExclusion(pattern); err != nil {
+			fmt.Printf("Error adding exclusion: %v\n", err)
+			return
+		}
+		fmt.Printf("Added %q to exclusions.\n", pattern)
+		if engine.IsProxyConfigured() {
+			_ = engine.SyncProxyIfEnabled()
+			fmt.Println("Synchronized updated exclusion to ~/.config/environment.d and browser flags.")
+		}
+
+	case "remove", "rm", "del":
+		if len(args) < 2 {
+			fmt.Println("Usage: omacorn exclude remove <domain|ip|cidr>")
+			return
+		}
+		pattern := args[1]
+		if err := engine.RemoveExclusion(pattern); err != nil {
+			fmt.Printf("Error removing exclusion: %v\n", err)
+			return
+		}
+		fmt.Printf("Removed %q from custom exclusions.\n", pattern)
+		if engine.IsProxyConfigured() {
+			_ = engine.SyncProxyIfEnabled()
+			fmt.Println("Synchronized updated exclusion to ~/.config/environment.d and browser flags.")
+		}
+
+	case "reset":
+		if err := engine.ResetExclusions(); err != nil {
+			fmt.Printf("Error resetting exclusions: %v\n", err)
+			return
+		}
+		fmt.Println("Reset custom exclusions to factory defaults.")
+		if engine.IsProxyConfigured() {
+			_ = engine.SyncProxyIfEnabled()
+			fmt.Println("Synchronized updated exclusion to ~/.config/environment.d and browser flags.")
+		}
+
+	default:
+		fmt.Printf("Unknown exclusion command: %s. Use list, add, remove, or reset.\n", subcmd)
+	}
+}
+
+func handleRunClean(args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: omacorn run-clean <command> [arguments...]")
+		fmt.Println("Spawns an application with all proxy environment variables completely scrubbed.")
+		return
+	}
+
+	cmdName := args[0]
+	cmdArgs := args[1:]
+
+	cmd := exec.Command(cmdName, cmdArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// Filter environment variables to strip all proxy references
+	var cleanEnv []string
+	proxyVars := map[string]bool{
+		"http_proxy":  true,
+		"HTTP_PROXY":  true,
+		"https_proxy": true,
+		"HTTPS_PROXY": true,
+		"all_proxy":   true,
+		"ALL_PROXY":   true,
+		"no_proxy":    true,
+		"NO_PROXY":    true,
+	}
+
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) > 0 && proxyVars[parts[0]] {
+			continue
+		}
+		cleanEnv = append(cleanEnv, env)
+	}
+	cmd.Env = cleanEnv
+
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Printf("Error running clean command %q: %v\n", cmdName, err)
+		os.Exit(1)
 	}
 }

@@ -1,20 +1,29 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
-const ProxyConfigContent = `# Omacorn system-wide desktop proxy configuration
+// GenerateProxyConfigContent builds the ~/.config/environment.d configuration.
+// Notice: all_proxy is deliberately omitted to prevent hijacking raw TCP / non-HTTP protocols
+// like Telegram (MTProto), SSH, or gaming connections into an HTTP-only DPI engine.
+func GenerateProxyConfigContent() string {
+	noProxy := CompileNoProxy()
+	return fmt.Sprintf(`# Omacorn system-wide desktop proxy configuration
 # Routes standard web traffic through local SpoofDPI daemon (port 8080)
-# Exempts localhost, local addresses, and Google Auth/APIs to prevent handshake collisions
+# Exempts localhost, Google Auth, Telegram, and custom user exclusions (Split Tunneling)
 http_proxy=http://127.0.0.1:8080
 https_proxy=http://127.0.0.1:8080
-all_proxy=http://127.0.0.1:8080
-no_proxy=localhost,127.0.0.1,*.local,*.google.com,accounts.google.com,googleapis.com
-`
+no_proxy=%s
+`, noProxy)
+}
+
+// ProxyConfigContent is maintained for test compatibility
+var ProxyConfigContent = GenerateProxyConfigContent()
 
 func getEnvDPath() (string, error) {
 	home, err := os.UserHomeDir()
@@ -63,7 +72,7 @@ var FlatpakBrowserMap = map[string]string{
 
 const (
 	browserProxyFlag     = "--proxy-server=http://127.0.0.1:8080"
-	browserBypassFlag    = "--proxy-bypass-list=<-loopback>;localhost;*.google.com;accounts.google.com;googleapis.com"
+	browserBypassPrefix  = "--proxy-bypass-list="
 	browserCommentHeader = "# Omacorn native proxy routing (bypasses Google Auth & localhost)"
 )
 
@@ -79,7 +88,7 @@ func updateFlagFile(p string, enable bool) {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "--proxy-server=") ||
-			strings.HasPrefix(trimmed, "--proxy-bypass-list=") ||
+			strings.HasPrefix(trimmed, browserBypassPrefix) ||
 			trimmed == browserCommentHeader {
 			continue
 		}
@@ -87,6 +96,7 @@ func updateFlagFile(p string, enable bool) {
 	}
 
 	if enable {
+		browserBypassFlag := browserBypassPrefix + CompileBrowserBypass()
 		newLines = append(newLines, "", browserCommentHeader, browserProxyFlag, browserBypassFlag)
 	}
 
@@ -154,11 +164,12 @@ func syncBrowserFlags(enable bool) {
 	// 3. User-level Flatpak environment overrides (for sandboxed browsers/apps like Firefox Flatpak)
 	if _, err := exec.LookPath("flatpak"); err == nil {
 		if enable {
+			noProxy := CompileNoProxy()
 			RunCmd("flatpak", "override", "--user",
 				"--env=http_proxy=http://127.0.0.1:8080",
 				"--env=https_proxy=http://127.0.0.1:8080",
-				"--env=all_proxy=http://127.0.0.1:8080",
-				"--env=no_proxy=localhost,127.0.0.1,*.local,*.google.com,accounts.google.com,googleapis.com",
+				"--env=no_proxy="+noProxy,
+				"--unset-env=all_proxy",
 			)
 		} else {
 			RunCmd("flatpak", "override", "--user",
@@ -182,17 +193,21 @@ func EnableSystemProxy() error {
 		return err
 	}
 
-	if err := os.WriteFile(p, []byte(ProxyConfigContent), 0644); err != nil {
+	content := GenerateProxyConfigContent()
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
 		return err
 	}
+
+	noProxy := CompileNoProxy()
 
 	// Update active systemd user session
 	os.Setenv("http_proxy", "http://127.0.0.1:8080")
 	os.Setenv("https_proxy", "http://127.0.0.1:8080")
-	os.Setenv("all_proxy", "http://127.0.0.1:8080")
-	os.Setenv("no_proxy", "localhost,127.0.0.1,*.local,*.google.com,accounts.google.com,googleapis.com")
+	os.Setenv("no_proxy", noProxy)
+	os.Unsetenv("all_proxy")
 
-	RunCmd("systemctl", "--user", "import-environment", "http_proxy", "https_proxy", "all_proxy", "no_proxy")
+	RunCmd("systemctl", "--user", "import-environment", "http_proxy", "https_proxy", "no_proxy")
+	RunCmd("systemctl", "--user", "set-environment", "all_proxy=")
 
 	// Synchronize native flags for all detected Chromium/Brave/Vivaldi browsers
 	syncBrowserFlags(true)
@@ -214,6 +229,12 @@ func DisableSystemProxy() error {
 		_ = os.Remove(filepath.Join(home, "dotfiles", "omarchy", ".config", "environment.d", "20-omacorn-proxy.conf"))
 	}
 
+	os.Unsetenv("http_proxy")
+	os.Unsetenv("https_proxy")
+	os.Unsetenv("all_proxy")
+	os.Unsetenv("no_proxy")
+
+	RunCmd("systemctl", "--user", "set-environment", "http_proxy=", "https_proxy=", "all_proxy=", "no_proxy=")
 	RunCmd("systemctl", "--user", "unset-environment", "http_proxy", "https_proxy", "all_proxy", "no_proxy")
 
 	// Remove proxy flags from all detected browsers
@@ -229,4 +250,12 @@ func ToggleSystemProxy() (bool, error) {
 	}
 	err := EnableSystemProxy()
 	return true, err
+}
+
+// SyncProxyIfEnabled updates proxy config files and browser flags if proxy is currently active
+func SyncProxyIfEnabled() error {
+	if IsProxyConfigured() {
+		return EnableSystemProxy()
+	}
+	return nil
 }

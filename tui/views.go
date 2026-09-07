@@ -176,6 +176,9 @@ func (m Model) renderDiagnostics() string {
 		dnsStatus = lipgloss.NewStyle().Foreground(ColorOrange).Render("WARN: " + m.status.DNSDetails)
 	}
 
+	exclusionsCount := len(engine.GetAllExclusions())
+	splitStatus := lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("ACTIVE (%d rules, Google Auth & Telegram MTProto bypassed)", exclusionsCount))
+
 	content := fmt.Sprintf(
 		"%s\n\n"+
 			"1. DNS Protection:\n"+
@@ -183,14 +186,19 @@ func (m Model) renderDiagnostics() string {
 			"2. Kernel eBPF & Capability Posture:\n"+
 			"   • SpoofDPI: Has CAP_NET_RAW (Enables low-TTL decoy packet injection as unprivileged user)\n"+
 			"   • Gecit:    Has CAP_BPF, CAP_PERFMON, CAP_SYS_ADMIN (Allows BPF ring buffers)\n\n"+
-			"3. Hypervisor Safety Guardrails:\n"+
+			"3. Split-Tunneling & Protocol Exclusions:\n"+
+			"   • %s\n"+
+			"   • Telegram MTProto: Direct to Origin (all_proxy omitted; raw TCP preserved)\n"+
+			"   • CLI Management: 'omacorn exclude list' or 'omacorn run-clean <app>'\n\n"+
+			"4. Hypervisor Safety Guardrails:\n"+
 			"   • Handshake MSS restore enforced at 600 bytes (Protects VMware SVGA DMA range)\n"+
 			"   • --doh=false enforced (Protects /etc/resolv.conf from tampering)\n"+
 			"   • ExecStopPost auto-cleanup traps enabled on service teardown\n\n"+
-			"4. Emergency System Recovery:\n"+
+			"5. Emergency System Recovery:\n"+
 			"   Press 'C' at any time to instantly purge all eBPF hooks and stop all daemons.",
 		lipgloss.NewStyle().Bold(true).Foreground(ColorCyan).Render("System Diagnostics & Safety Guardrails"),
 		dnsStatus,
+		splitStatus,
 	)
 
 	return CardStyle.Width(74).Render(content)

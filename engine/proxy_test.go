@@ -53,8 +53,17 @@ func TestProxyLifecycle(t *testing.T) {
 	if !strings.Contains(content, "127.0.0.1:8080") {
 		t.Errorf("proxy file missing 127.0.0.1:8080: %s", content)
 	}
+	if strings.Contains(content, "all_proxy") {
+		t.Errorf("proxy file must NOT contain all_proxy (MTProto/raw TCP protection): %s", content)
+	}
 	if !strings.Contains(content, "accounts.google.com") {
 		t.Errorf("proxy file missing Google Auth exemption: %s", content)
+	}
+	if !strings.Contains(content, "*.telegram.org") {
+		t.Errorf("proxy file missing Telegram domain exemption: %s", content)
+	}
+	if !strings.Contains(content, "149.154.160.0/20") {
+		t.Errorf("proxy file missing Telegram CIDR exemption: %s", content)
 	}
 
 	// Disable proxy
