@@ -12,22 +12,22 @@ import (
 )
 
 type SystemStatus struct {
-	SpoofActive    bool
-	SpoofAddr      string
-	SpoofUptime    string
-	GecitActive    bool
-	GecitUptime    string
-	ProxyEnabled   bool
-	DNSProtected   bool
-	DNSDetails     string
-	VPNActive      bool
-	VPNInterface   string
-	GoogleLatency  time.Duration
-	GoogleStatus   int
-	GoogleErr      string
-	TargetLatency  time.Duration
-	TargetStatus   int
-	TargetErr      string
+	SpoofActive   bool
+	SpoofAddr     string
+	SpoofUptime   string
+	GecitActive   bool
+	GecitUptime   string
+	ProxyEnabled  bool
+	DNSProtected  bool
+	DNSDetails    string
+	VPNActive     bool
+	VPNInterface  string
+	GoogleLatency time.Duration
+	GoogleStatus  int
+	GoogleErr     string
+	TargetLatency time.Duration
+	TargetStatus  int
+	TargetErr     string
 }
 
 func RunCmd(cmd string, args ...string) (string, error) {
@@ -149,4 +149,3 @@ func GetProbeTarget() (string, string) {
 
 	return "https://news.ycombinator.com", "<test-target>"
 }
-

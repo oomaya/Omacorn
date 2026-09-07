@@ -7,15 +7,15 @@ import (
 // Sharp-Corner Aesthetic Law compliant styling
 var (
 	// Palettes
-	ColorBg      = lipgloss.Color("#0b0f19")
-	ColorCard    = lipgloss.Color("#161e2e")
-	ColorCyan    = lipgloss.Color("#00f0ff")
-	ColorGreen   = lipgloss.Color("#2ed573")
-	ColorRed     = lipgloss.Color("#ff4757")
-	ColorOrange  = lipgloss.Color("#ffa502")
-	ColorPurple  = lipgloss.Color("#a55eea")
-	ColorMuted   = lipgloss.Color("#747d8c")
-	ColorWhite   = lipgloss.Color("#f1f2f6")
+	ColorBg     = lipgloss.Color("#0b0f19")
+	ColorCard   = lipgloss.Color("#161e2e")
+	ColorCyan   = lipgloss.Color("#00f0ff")
+	ColorGreen  = lipgloss.Color("#2ed573")
+	ColorRed    = lipgloss.Color("#ff4757")
+	ColorOrange = lipgloss.Color("#ffa502")
+	ColorPurple = lipgloss.Color("#a55eea")
+	ColorMuted  = lipgloss.Color("#747d8c")
+	ColorWhite  = lipgloss.Color("#f1f2f6")
 
 	// Sharp-edge border
 	SharpBorder = lipgloss.Border{

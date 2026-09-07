@@ -50,35 +50,56 @@ log_step "Detected platform: ${DISTRO_NAME} (${DISTRO_ID})"
 BIN_DIR="${HOME}/.local/bin"
 mkdir -p "${BIN_DIR}"
 
+ARCH="$(uname -m)"
+case "${ARCH}" in
+    x86_64) ARCH_SUFFIX="amd64" ;;
+    aarch64|arm64) ARCH_SUFFIX="arm64" ;;
+    *) ARCH_SUFFIX="amd64" ;;
+esac
+
 if [[ -f "./omacorn" && -x "./omacorn" ]]; then
     log_ok "Using pre-compiled Omacorn binary from repository."
     cp ./omacorn "${BIN_DIR}/omacorn"
-elif command -v go &>/dev/null; then
+elif [[ -f "./main.go" ]] && command -v go &>/dev/null; then
     log_step "Go compiler detected ($(go version | awk '{print $3}')). Compiling static Omacorn binary..."
     CGO_ENABLED=0 go build -ldflags="-s -w" -o omacorn .
     cp omacorn "${BIN_DIR}/omacorn"
 else
-    log_err "Neither pre-compiled 'omacorn' binary nor Go compiler found."
-    echo "       Please install Go according to your system:"
-    case "${DISTRO_ID}" in
-        arch|cachyos|omarchy)
-            echo "       sudo pacman -S go"
-            ;;
-        debian|ubuntu|pika)
-            echo "       sudo apt update && sudo apt install -y golang-go libcap2-bin"
-            ;;
-        fedora)
-            echo "       sudo dnf install golang (or compile inside distrobox/toolbox on Atomic spins)"
-            ;;
-        *)
-            echo "       Install Go from https://go.dev/dl/ or copy a pre-built static omacorn binary."
-            ;;
-    esac
-    exit 1
+    log_step "Fetching latest static Omacorn release for linux-${ARCH_SUFFIX}..."
+    OMACORN_DL_URL="https://github.com/oomaya/Omacorn/releases/latest/download/omacorn-linux-${ARCH_SUFFIX}"
+    if curl -sSLf "${OMACORN_DL_URL}" -o "${BIN_DIR}/omacorn" 2>/dev/null; then
+        log_ok "Downloaded static release binary from GitHub"
+    elif command -v go &>/dev/null; then
+        log_step "Compiling from source via go install..."
+        go install github.com/oomaya/Omacorn@latest 2>/dev/null || true
+        if [[ -x "${HOME}/go/bin/Omacorn" ]]; then
+            cp "${HOME}/go/bin/Omacorn" "${BIN_DIR}/omacorn"
+        fi
+    else
+        log_err "Neither pre-compiled binary, GitHub release, nor Go compiler found."
+        echo "       Please install Go according to your system:"
+        case "${DISTRO_ID}" in
+            arch|cachyos|omarchy)
+                echo "       sudo pacman -S go"
+                ;;
+            debian|ubuntu|pika)
+                echo "       sudo apt update && sudo apt install -y golang-go libcap2-bin"
+                ;;
+            fedora)
+                echo "       sudo dnf install golang (or compile inside distrobox/toolbox on Atomic spins)"
+                ;;
+            *)
+                echo "       Install Go from https://go.dev/dl/ or copy a pre-built static omacorn binary."
+                ;;
+        esac
+        exit 1
+    fi
 fi
 chmod +x "${BIN_DIR}/omacorn"
 ln -sf omacorn "${BIN_DIR}/dpipe"
-ln -sf omacorn "dpipe"
+if [[ -f "./main.go" ]]; then
+    ln -sf omacorn "dpipe"
+fi
 log_ok "Installed 'omacorn' and alias 'dpipe' to ${BIN_DIR}"
 
 # 3. Verify or Install SpoofDPI Engine

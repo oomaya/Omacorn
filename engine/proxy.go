@@ -31,11 +31,6 @@ func IsProxyConfigured() bool {
 	if _, err := os.Stat(p); err == nil {
 		return true
 	}
-	// Also check user systemd show-environment
-	out, err := RunCmd("systemctl", "--user", "show-environment")
-	if err == nil && strings.Contains(out, "http_proxy=http://127.0.0.1:8080") {
-		return true
-	}
 	return false
 }
 
