@@ -31,7 +31,7 @@ log_err() {
 
 echo -e "${CYAN}${BOLD}"
 echo "================================================================"
-echo "      🦄 OMACORN v0.3.0 — Automated Deployment Suite           "
+echo "      🦄 OMACORN v0.4.0 — Automated Deployment Suite           "
 echo "================================================================"
 echo -e "${NC}"
 

@@ -1,4 +1,4 @@
-# 🦄 Omacorn (v0.3.0) — Quick Manual & Systems Guide
+# 🦄 Omacorn (v0.4.0) — Quick Manual & Systems Guide
 
 > **Sovereign, Twin-Engine DPI Evasion Daemon & Cyberpunk TUI for Omarchy / Arch Linux**  
 > Direct-to-origin packet surgery with **zero remote proxies, zero Cloudflare Workers, and zero browser extensions**.  

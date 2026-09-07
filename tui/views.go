@@ -14,7 +14,7 @@ func (m Model) View() string {
 	var s strings.Builder
 
 	// 1. Header
-	headerText := TitleStyle.Render("OMACORN DESKTOP (OD) v0.3.0")
+	headerText := TitleStyle.Render("OMACORN DESKTOP (OD) v0.4.0")
 	sysInfo := lipgloss.NewStyle().Foreground(ColorMuted).Render("Arch/Omarchy • Kernel 7.1.9 • Twin-Engine")
 	headerBar := lipgloss.JoinHorizontal(lipgloss.Center, headerText, "  ", sysInfo)
 	s.WriteString(headerBar)

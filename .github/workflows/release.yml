@@ -69,6 +69,7 @@ jobs:
         with:
           files: |
             dist/*.tar.gz
+            dist/omacorn-linux-*
             dist/checksums.txt
             scripts/install.sh
           generate_release_notes: true

@@ -1,5 +1,5 @@
 NAME := omacorn
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.3.0")
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.4.0")
 BINDIR ?= $(HOME)/.local/bin
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
