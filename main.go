@@ -47,6 +47,8 @@ func main() {
 		handleExclude(os.Args[2:])
 	case "run-clean", "clean-run", "spawn-direct":
 		handleRunClean(os.Args[2:])
+	case "update", "upgrade":
+		handleUpdate()
 	case "test":
 		handleTest(arg)
 	case "logs":
@@ -94,10 +96,11 @@ Usage:
   %s proxy   [on|off|toggle]      Manage desktop environment proxy (~/.config/environment.d)
   %s exclude [list|add|remove|reset] Manage split-tunneling & proxy bypass exclusions
   %s run-clean <command...>       Execute an app completely isolated from proxy env vars
+  %s update                       Pull upstream, rebuild, hot-reload daemons, and re-sync
   %s logs    [spoofdpi|gecit]     Tail journal logs
   %s install [spoofdpi|gecit|all] Install systemd service(s)
   %s cleanup                      Emergency cleanup for eBPF and services
-`, version, bin, bin, bin, bin, bin, bin, bin, bin, bin, bin, bin)
+`, version, bin, bin, bin, bin, bin, bin, bin, bin, bin, bin, bin, bin)
 }
 
 func handleInstall(target string) {
@@ -269,7 +272,8 @@ func handleTest(_ string) {
 	probeURL, displayLabel := engine.GetProbeTarget()
 	tCode, tTime, tErr := engine.ProbeURL(probeURL, proxyAddr, 4*time.Second)
 	if tErr != nil {
-		fmt.Printf("• Blocked Target (%s): FAIL (%v)\n", displayLabel, tErr)
+		cleanErr := strings.ReplaceAll(tErr.Error(), probeURL, displayLabel)
+		fmt.Printf("• Blocked Target (%s): FAIL (%s)\n", displayLabel, cleanErr)
 	} else {
 		fmt.Printf("• Blocked Target (%s): HTTP %d in %v (Unblocked)\n", displayLabel, tCode, tTime)
 	}
@@ -420,4 +424,79 @@ func handleRunClean(args []string) {
 		fmt.Printf("Error running clean command %q: %v\n", cmdName, err)
 		os.Exit(1)
 	}
+}
+
+func handleUpdate() {
+	fmt.Println("================================================================")
+	fmt.Printf("      🦄 OMACORN v%s — Fleet Maintenance & Update Engine\n", version)
+	fmt.Println("================================================================")
+
+	home, _ := os.UserHomeDir()
+	candidatePaths := []string{
+		".",
+		filepath.Join(home, "Projects", "Omacorn"),
+		filepath.Join(home, "Projects", "omacorn"),
+		filepath.Join(home, "src", "Omacorn"),
+		filepath.Join(home, "src", "omacorn"),
+		filepath.Join(home, ".local", "src", "Omacorn"),
+	}
+
+	for _, p := range candidatePaths {
+		scriptPath := filepath.Join(p, "scripts", "update.sh")
+		if info, err := os.Stat(scriptPath); err == nil && !info.IsDir() {
+			cmd := exec.Command(scriptPath)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					os.Exit(exitErr.ExitCode())
+				}
+				fmt.Printf("Error running update script: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
+	// Fallback for standalone binary installations without a git clone
+	fmt.Println("[fallback] Git repository clone not found in standard paths.")
+	fmt.Println("[fallback] Fetching latest pre-compiled static release from GitHub...")
+
+	arch := "amd64"
+	if out, err := engine.RunCmd("uname", "-m"); err == nil {
+		if strings.Contains(out, "aarch64") || strings.Contains(out, "arm64") {
+			arch = "arm64"
+		}
+	}
+
+	downloadURL := fmt.Sprintf("https://github.com/oomaya/Omacorn/releases/latest/download/omacorn-linux-%s", arch)
+	binDir := filepath.Join(home, ".local", "bin")
+	_ = os.MkdirAll(binDir, 0755)
+	targetBin := filepath.Join(binDir, "omacorn")
+	tmpBin := targetBin + ".tmp"
+
+	fetchCmd := exec.Command("curl", "-sSLf", downloadURL, "-o", tmpBin)
+	if err := fetchCmd.Run(); err != nil {
+		fmt.Printf("Failed to download release from %s: %v\n", downloadURL, err)
+		return
+	}
+	_ = os.Chmod(tmpBin, 0755)
+	if err := os.Rename(tmpBin, targetBin); err != nil {
+		fmt.Printf("Failed to replace binary: %v\n", err)
+		return
+	}
+	_ = os.Symlink("omacorn", filepath.Join(binDir, "dpipe"))
+
+	if engine.IsSpoofDPIRunning() {
+		_, _ = engine.RunCmd("systemctl", "--user", "restart", engine.SpoofUnitName)
+		fmt.Println("  ✓ Hot-reloaded dpipe-spoofdpi user daemon")
+	}
+
+	if engine.IsProxyConfigured() {
+		_ = engine.SyncProxyIfEnabled()
+		fmt.Println("  ✓ Re-synchronized desktop proxy and split-tunnel exemptions")
+	}
+
+	fmt.Println("✓ Successfully updated Omacorn static binary!")
 }

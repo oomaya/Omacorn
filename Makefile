@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.4
 BINDIR ?= $(HOME)/.local/bin
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: all build test lint static cross install clean
+.PHONY: all build test lint static cross install update clean
 
 all: build
 
@@ -30,6 +30,9 @@ install: static
 	ln -sf $(NAME) $(BINDIR)/dpipe
 	ln -sf $(NAME) dpipe
 	@echo "Installed $(NAME) to $(BINDIR)/$(NAME)"
+
+update:
+	@./scripts/update.sh
 
 clean:
 	rm -f $(NAME) $(NAME)-linux-* dpipe

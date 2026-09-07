@@ -54,6 +54,10 @@ omacorn exclude remove example.com
 # Run an app completely isolated from proxy variables (direct mode)
 omacorn run-clean telegram-desktop
 
+# Fleet maintenance & seamless updates (from any directory)
+omacorn update
+# Or inside repo: ./scripts/update.sh (or 'make update')
+
 # Stream live service logs
 omacorn logs spoofdpi
 omacorn logs gecit
