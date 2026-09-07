@@ -1,0 +1,16 @@
+# Binaries
+omacorn
+dpipe
+
+# Local test targets & private configs
+target.txt
+*.local
+.env
+.env.*
+
+# OS & Editor
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
