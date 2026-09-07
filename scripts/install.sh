@@ -35,30 +35,82 @@ echo "      🦄 OMACORN v0.3.0 — Automated Deployment Suite           "
 echo "================================================================"
 echo -e "${NC}"
 
-# 1. Verify Go Compiler
-log_step "Checking Go environment..."
-if ! command -v go &>/dev/null; then
-    log_err "Go compiler not found. Please install it first:"
-    echo "       sudo pacman -S go"
+# 1. Distro Detection
+DISTRO_ID="unknown"
+DISTRO_NAME="Linux"
+if [[ -f /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    DISTRO_ID="${ID:-unknown}"
+    DISTRO_NAME="${PRETTY_NAME:-$DISTRO_ID}"
+fi
+log_step "Detected platform: ${DISTRO_NAME} (${DISTRO_ID})"
+
+# 2. Verify or Install Omacorn Binary
+BIN_DIR="${HOME}/.local/bin"
+mkdir -p "${BIN_DIR}"
+
+if [[ -f "./omacorn" && -x "./omacorn" ]]; then
+    log_ok "Using pre-compiled Omacorn binary from repository."
+    cp ./omacorn "${BIN_DIR}/omacorn"
+elif command -v go &>/dev/null; then
+    log_step "Go compiler detected ($(go version | awk '{print $3}')). Compiling static Omacorn binary..."
+    CGO_ENABLED=0 go build -ldflags="-s -w" -o omacorn .
+    cp omacorn "${BIN_DIR}/omacorn"
+else
+    log_err "Neither pre-compiled 'omacorn' binary nor Go compiler found."
+    echo "       Please install Go according to your system:"
+    case "${DISTRO_ID}" in
+        arch|cachyos|omarchy)
+            echo "       sudo pacman -S go"
+            ;;
+        debian|ubuntu|pika)
+            echo "       sudo apt update && sudo apt install -y golang-go libcap2-bin"
+            ;;
+        fedora)
+            echo "       sudo dnf install golang (or compile inside distrobox/toolbox on Atomic spins)"
+            ;;
+        *)
+            echo "       Install Go from https://go.dev/dl/ or copy a pre-built static omacorn binary."
+            ;;
+    esac
     exit 1
 fi
-log_ok "Go compiler detected: $(go version | awk '{print $3}')"
+chmod +x "${BIN_DIR}/omacorn"
+ln -sf omacorn "${BIN_DIR}/dpipe"
+ln -sf omacorn "dpipe"
+log_ok "Installed 'omacorn' and alias 'dpipe' to ${BIN_DIR}"
 
-# 2. Verify or Install SpoofDPI Engine
+# 3. Verify or Install SpoofDPI Engine
 log_step "Checking Engine 1 (SpoofDPI)..."
 SPOOFDPI_BIN=""
 if command -v spoofdpi &>/dev/null; then
     SPOOFDPI_BIN="$(command -v spoofdpi)"
+elif [[ -x "${BIN_DIR}/spoofdpi" ]]; then
+    SPOOFDPI_BIN="${BIN_DIR}/spoofdpi"
 elif [[ -x "${HOME}/go/bin/spoofdpi" ]]; then
     SPOOFDPI_BIN="${HOME}/go/bin/spoofdpi"
-else
+elif command -v go &>/dev/null; then
     log_step "Installing SpoofDPI via 'go install'..."
     go install github.com/xvzc/spoofdpi/cmd/spoofdpi@latest
     SPOOFDPI_BIN="${HOME}/go/bin/spoofdpi"
+else
+    log_step "Go not detected; downloading official static SpoofDPI release..."
+    SPOOF_TMP="$(mktemp -d)"
+    if curl -sSL "https://github.com/xvzc/spoofdpi/releases/download/v1.5.3/spoofdpi_1.5.3_linux_x86_64.tar.gz" -o "${SPOOF_TMP}/spoofdpi.tar.gz" 2>/dev/null; then
+        tar -xzf "${SPOOF_TMP}/spoofdpi.tar.gz" -C "${BIN_DIR}"
+        SPOOFDPI_BIN="${BIN_DIR}/spoofdpi"
+        rm -rf "${SPOOF_TMP}"
+    fi
+fi
+
+if [[ -z "${SPOOFDPI_BIN}" || ! -x "${SPOOFDPI_BIN}" ]]; then
+    log_err "Failed to locate or install SpoofDPI. Install Go or download spoofdpi to ~/.local/bin/spoofdpi."
+    exit 1
 fi
 log_ok "SpoofDPI binary located at: ${SPOOFDPI_BIN}"
 
-# 3. Configure CAP_NET_RAW Capability
+# 4. Configure CAP_NET_RAW Capability
 log_step "Ensuring CAP_NET_RAW capability on SpoofDPI for user-space decoy packets..."
 CURRENT_CAPS=$(getcap "${SPOOFDPI_BIN}" 2>/dev/null || true)
 if [[ "${CURRENT_CAPS}" != *"cap_net_raw"* ]]; then
@@ -68,17 +120,6 @@ if [[ "${CURRENT_CAPS}" != *"cap_net_raw"* ]]; then
 else
     log_ok "CAP_NET_RAW is already configured."
 fi
-
-# 4. Build Omacorn CLI & TUI
-log_step "Compiling Omacorn binary..."
-BIN_DIR="${HOME}/.local/bin"
-mkdir -p "${BIN_DIR}"
-go build -o omacorn .
-cp omacorn "${BIN_DIR}/omacorn"
-chmod +x "${BIN_DIR}/omacorn"
-ln -sf omacorn "${BIN_DIR}/dpipe"
-ln -sf omacorn "dpipe"
-log_ok "Installed 'omacorn' and alias 'dpipe' to ${BIN_DIR}"
 
 # 5. Install Systemd User Unit
 log_step "Installing systemd user service..."
