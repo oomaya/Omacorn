@@ -66,3 +66,24 @@ func TestRunCmd(t *testing.T) {
 		t.Errorf("expected 'hello omacorn', got %q", out)
 	}
 }
+
+func TestDetectHypervisor(t *testing.T) {
+	isVirt, name := DetectHypervisor()
+	// DetectHypervisor should not panic and return coherent strings
+	if isVirt {
+		if name == "" {
+			t.Errorf("expected non-empty hypervisor name when isVirt is true")
+		}
+	}
+}
+
+func TestSystemStatusVirtualization(t *testing.T) {
+	st := GetSystemStatus()
+	isVirt, name := DetectHypervisor()
+	if st.IsHypervisor != isVirt {
+		t.Errorf("expected st.IsHypervisor == %v, got %v", isVirt, st.IsHypervisor)
+	}
+	if st.HypervisorName != name {
+		t.Errorf("expected st.HypervisorName == %q, got %q", name, st.HypervisorName)
+	}
+}

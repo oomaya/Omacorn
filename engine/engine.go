@@ -12,22 +12,24 @@ import (
 )
 
 type SystemStatus struct {
-	SpoofActive   bool
-	SpoofAddr     string
-	SpoofUptime   string
-	GecitActive   bool
-	GecitUptime   string
-	ProxyEnabled  bool
-	DNSProtected  bool
-	DNSDetails    string
-	VPNActive     bool
-	VPNInterface  string
-	GoogleLatency time.Duration
-	GoogleStatus  int
-	GoogleErr     string
-	TargetLatency time.Duration
-	TargetStatus  int
-	TargetErr     string
+	SpoofActive    bool
+	SpoofAddr      string
+	SpoofUptime    string
+	GecitActive    bool
+	GecitUptime    string
+	IsHypervisor   bool
+	HypervisorName string
+	ProxyEnabled   bool
+	DNSProtected   bool
+	DNSDetails     string
+	VPNActive      bool
+	VPNInterface   string
+	GoogleLatency  time.Duration
+	GoogleStatus   int
+	GoogleErr      string
+	TargetLatency  time.Duration
+	TargetStatus   int
+	TargetErr      string
 }
 
 func RunCmd(cmd string, args ...string) (string, error) {
@@ -36,22 +38,59 @@ func RunCmd(cmd string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// DetectHypervisor identifies whether Omacorn is running in a virtual machine (VMware, KVM, VirtualBox, etc.)
+func DetectHypervisor() (bool, string) {
+	out, err := RunCmd("systemd-detect-virt")
+	if err == nil && out != "" && out != "none" {
+		return true, out
+	}
+	// Fallback check
+	if data, err := os.ReadFile("/sys/class/dmi/id/sys_vendor"); err == nil {
+		vendor := strings.ToLower(string(data))
+		if strings.Contains(vendor, "vmware") {
+			return true, "vmware"
+		}
+		if strings.Contains(vendor, "qemu") || strings.Contains(vendor, "kvm") {
+			return true, "kvm"
+		}
+		if strings.Contains(vendor, "virtualbox") {
+			return true, "oracle"
+		}
+	}
+	return false, ""
+}
+
+// IsSpoofDPIRunning checks if Main Pilot (SpoofDPI user service) is active
+func IsSpoofDPIRunning() bool {
+	out, _ := RunCmd("systemctl", "--user", "is-active", SpoofUnitName)
+	return out == "active"
+}
+
+// IsGecitRunning checks if Co-Pilot (Gecit system service) is active
+func IsGecitRunning() bool {
+	out, _ := RunCmd("systemctl", "is-active", GecitUnitName)
+	return out == "active"
+}
+
 func GetSystemStatus() SystemStatus {
 	st := SystemStatus{
 		SpoofAddr: SpoofDefaultAddr,
 	}
 
-	// 1. Check SpoofDPI
-	out, _ := RunCmd("systemctl", "--user", "is-active", SpoofUnitName)
-	if out == "active" {
+	// 0. Detect Hypervisor
+	isVirt, virtName := DetectHypervisor()
+	st.IsHypervisor = isVirt
+	st.HypervisorName = virtName
+
+	// 1. Check SpoofDPI (Main Pilot)
+	if IsSpoofDPIRunning() {
 		st.SpoofActive = true
 		ts, _ := RunCmd("systemctl", "--user", "show", SpoofUnitName, "-p", "ActiveEnterTimestamp")
 		st.SpoofUptime = strings.TrimPrefix(ts, "ActiveEnterTimestamp=")
 	}
 
-	// 2. Check Gecit
-	out, _ = RunCmd("systemctl", "is-active", GecitUnitName)
-	if out == "active" {
+	// 2. Check Gecit (Co-Pilot / Standby)
+	if IsGecitRunning() {
 		st.GecitActive = true
 		ts, _ := RunCmd("systemctl", "show", GecitUnitName, "-p", "ActiveEnterTimestamp")
 		st.GecitUptime = strings.TrimPrefix(ts, "ActiveEnterTimestamp=")

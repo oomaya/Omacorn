@@ -74,13 +74,17 @@ func launchTUI() {
 
 func printUsage() {
 	bin := getBinName()
-	fmt.Printf(`🦄 Omacorn v%s — Sovereign Twin-Engine DPI Bypass Controller
+	fmt.Printf(`🦄 Omacorn v%s — Pilot-Copilot Sovereign DPI Bypass Controller
+
+Flight Architecture:
+  Pilot 1 (Main Pilot):    spoofdpi (User-space proxy on 127.0.0.1:8080 - default, safe for VMs & all distros)
+  Pilot 2 (Co-Pilot):      gecit    (Kernel eBPF sock_ops - high speed for bare metal)
 
 Usage:
   %s                              Launch interactive Cyberpunk TUI dashboard
-  %s start   [spoofdpi|gecit]     Start bypass engine (default: spoofdpi)
-  %s stop    [spoofdpi|gecit|all] Stop bypass engine(s)
-  %s status  [--json]             Show status board (or JSON for Quickshell/Waybar)
+  %s start   [spoofdpi|gecit]     Handoff flight controls to selected engine (default: spoofdpi)
+  %s stop    [spoofdpi|gecit|all] Disengage bypass engine(s)
+  %s status  [--json]             Show flight status board (or JSON for Quickshell/Waybar)
   %s test    [spoofdpi|gecit]     Run live latency & handshake probe
   %s proxy   [on|off|toggle]      Manage desktop environment proxy (~/.config/environment.d)
   %s logs    [spoofdpi|gecit]     Tail journal logs
@@ -112,23 +116,45 @@ func handleInstall(target string) {
 }
 
 func handleStart(target string) {
+	isVirt, hypervisor := engine.DetectHypervisor()
+
 	if target == "gecit" {
+		if isVirt {
+			fmt.Printf("[gecit] ⚠️  WARNING: Running inside %s virtual machine.\n", strings.ToUpper(hypervisor))
+			fmt.Println("       Kernel eBPF sock_ops with raw packet injection can trigger hypervisor DMA buffer faults (SVGA: Invalid PA range).")
+			fmt.Println("       Recommendation: Keep Main Pilot (spoofdpi) in command for virtualized environments.")
+		}
+
+		// Mutual exclusion: disengage Main Pilot (spoofdpi) before engaging Co-Pilot (gecit)
+		if engine.IsSpoofDPIRunning() {
+			fmt.Println("[handoff] Disengaging Main Pilot (spoofdpi) before engaging Co-Pilot (gecit)...")
+			engine.StopSpoofDPI()
+		}
+
 		out, err := engine.StartGecit()
 		if err != nil {
 			fmt.Printf("[gecit] Start failed: %s (%v)\n", out, err)
 			return
 		}
-		fmt.Println("[gecit] Started (eBPF sock_ops attached).")
+		fmt.Println("[gecit] Co-Pilot in command (eBPF sock_ops attached).")
 		return
 	}
 
-	// Default to spoofdpi
+	// Default: spoofdpi (Main Pilot)
+	if engine.IsGecitRunning() {
+		fmt.Println("[handoff] Disengaging Co-Pilot (gecit) before engaging Main Pilot (spoofdpi)...")
+		engine.StopGecit()
+	}
+
 	out, err := engine.StartSpoofDPI()
 	if err != nil {
 		fmt.Printf("[spoofdpi] Start failed: %s (%v)\n", out, err)
 		return
 	}
-	fmt.Printf("[spoofdpi] Started on %s\n", engine.SpoofDefaultAddr)
+	fmt.Printf("[spoofdpi] Main Pilot in command on %s\n", engine.SpoofDefaultAddr)
+	if isVirt {
+		fmt.Printf("[pilot] Platform: %s virtual machine (Hypervisor-safe user-space proxy mode active)\n", hypervisor)
+	}
 }
 
 func handleStop(target string) {
@@ -152,16 +178,20 @@ func handleStatus(arg string) {
 	}
 
 	fmt.Println("================================================================")
-	fmt.Printf("           🦄 OMACORN v%s - Status\n", version)
+	fmt.Printf("           🦄 OMACORN v%s - Flight Status Board\n", version)
 	fmt.Println("================================================================")
-	spoofState := "inactive"
+	spoofState := "STANDBY"
 	if st.SpoofActive {
-		spoofState = "ACTIVE (127.0.0.1:8080)"
+		spoofState = "ACTIVE (127.0.0.1:8080) [IN COMMAND]"
 	}
-	gecitState := "inactive"
+	gecitState := "STANDBY"
 	if st.GecitActive {
-		gecitState = "ACTIVE (eBPF sock_ops)"
+		gecitState = "ACTIVE (eBPF sock_ops) [IN COMMAND]"
 	}
+	if st.SpoofActive && st.GecitActive {
+		gecitState = "⚠️  CONFLICT (Dual pilots active! Run 'omacorn start spoofdpi')"
+	}
+
 	proxyState := "DISABLED"
 	if st.ProxyEnabled {
 		proxyState = "ENABLED (~/.config/environment.d)"
@@ -172,8 +202,14 @@ func handleStatus(arg string) {
 		vpnState = fmt.Sprintf("ACTIVE (%s - all traffic tunneled)", st.VPNInterface)
 	}
 
-	fmt.Printf("Engine 1: [spoofdpi]    %s\n", spoofState)
-	fmt.Printf("Engine 2: [gecit]       %s\n", gecitState)
+	virtDesc := "Bare Metal (Native Linux Kernel)"
+	if st.IsHypervisor {
+		virtDesc = fmt.Sprintf("Virtualized (%s guest - Main Pilot recommended)", st.HypervisorName)
+	}
+
+	fmt.Printf("Pilot 1 (Main Pilot):   [spoofdpi] %s\n", spoofState)
+	fmt.Printf("Pilot 2 (Co-Pilot):     [gecit]    %s\n", gecitState)
+	fmt.Printf("Platform / Topology:    %s\n", virtDesc)
 	fmt.Printf("Desktop System Proxy:   %s\n", proxyState)
 	fmt.Printf("VPN Tunnel:             %s\n", vpnState)
 	fmt.Printf("System DNS:             %s\n", st.DNSDetails)

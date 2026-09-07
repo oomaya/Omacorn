@@ -53,38 +53,41 @@ omacorn logs gecit
 
 ---
 
-## 🏛️ Twin-Engine Architecture
+## 🏛️ Pilot & Co-Pilot (PF/PM) Sovereign Architecture
 
-Omacorn provides two complementary engines tailored for different environments:
+Omacorn enforces an aviation-grade **Pilot Flying (PF) & Pilot Monitoring (PM)** architecture. In cockpit operations, only one pilot ever holds the flight controls at a given time; two pilots fighting for the yoke simultaneously induces structural flutter and crashes the aircraft. 
+
+Omacorn guarantees **strict mutual exclusion**: engaging one pilot automatically commands the other to step down into standby.
 
 ```mermaid
 graph TD
     Client["Browser / Terminal / App"]
     
-    subgraph Engine1 ["Engine 1: SpoofDPI (Daily Driver)"]
+    subgraph PF ["Pilot 1: SpoofDPI (Main Pilot - In Command)"]
         SD["User Daemon (:8080)"]
-        CAP["CAP_NET_RAW Decoy"]
+        CAP["CAP_NET_RAW Decoy Injection"]
         SD -->|Fake ClientHello TTL=8| Net1["Direct to Origin (0.11s)"]
     end
     
-    subgraph Engine2 ["Engine 2: Gecit (Kernel eBPF)"]
+    subgraph PM ["Pilot 2: Gecit (Co-Pilot - Standby / High Altitude)"]
         BPF["sock_ops Hook (/sys/fs/cgroup)"]
         MSS["Hardened MSS 88 (Restored @ 600B)"]
         BPF -->|Transparent eBPF| Net2["Direct to Origin"]
     end
     
-    Client -->|Default Desktop Route| SD
-    Client -.->|Raw Headless Scripts / Fallback| BPF
+    Client -->|Active Flight Route| SD
+    SD -.->|Clean Flight Handoff| BPF
 ```
 
-| Dimension | Engine 1: SpoofDPI (Default) | Engine 2: Gecit (Hardened) |
+| Dimension | Pilot 1: SpoofDPI (Main Pilot) | Pilot 2: Gecit (Co-Pilot / Standby) |
 |---|---|---|
+| **Role & Stance** | **Pilot Flying (In Command)** | **Pilot Monitoring (Standby Backup)** |
 | **Execution Scope** | User Space (`$XDG_RUNTIME_DIR`) | Kernel Space (`/sys/fs/cgroup`) |
 | **Privilege** | Non-root desktop user (`CAP_NET_RAW` on binary) | `root` (`CAP_BPF`, `CAP_PERFMON`, `CAP_SYS_ADMIN`) |
 | **Bypass Technique** | Low-TTL Decoy (`TTL=8`) + TCP stream splitting | Synchronous eBPF `sock_ops` fake ClientHello injection |
 | **Google Auth Health**| **100% Stable (186ms)** | Protected via hardened handshake bounds |
-| **Hypervisor Safety** | **100% Immune** to DMA/GPU panics | Tamed (`--restore-after-bytes 600`, `--doh=false`) |
-| **Best For** | Daily desktop browsing across all browsers | Headless VMs, containers, and proxy-ignoring apps |
+| **Hypervisor Safety** | **100% Immune** to DMA/GPU panics | Reserved for Bare Metal (causes VM DMA stalls) |
+| **Best For** | Daily desktop browsing across all distros & VMs | High-speed bare metal (CachyOS) & headless scripts |
 
 ---
 
@@ -159,6 +162,9 @@ Early versions of gecit crashed the VM with an `SVGA: Invalid PA range` hypervis
 - **eBPF `sock_ops`**: A modern Linux kernel technology that acts like an in-kernel traffic controller. It allows programs to inspect and modify TCP socket parameters (like window size and MSS) right as connections are negotiated, with zero userspace context-switching overhead.
 - **`CAP_NET_RAW`**: A Linux security permission that allows a program to forge arbitrary raw network packets (such as crafting custom TTLs) without requiring full `root` system privileges.
 - **`no_proxy`**: An environment variable that lists domains and IP addresses that must **never** be routed through a proxy. Omacorn uses this to guarantee that Google Auth, Google APIs, and local developer ports (`127.0.0.1`) connect directly at full wire speed.
+- **Pilot & Co-Pilot (PF/PM) Control Handoff**: Aviation principle where the Pilot Flying (PF) holds the controls while the Pilot Monitoring (PM) stands by. In Omacorn, Main Pilot (`spoofdpi`) and Co-Pilot (`gecit`) operate under strict mutual exclusion. One pilot must formally step down before the other engages, preventing packet double-mangling.
+- **`insteadOf` Transport Rewrite**: A git directive (`url.<base>.insteadOf`) that replaces repository URLs on the fly. When set to `url.git@github.com:.insteadof=https://github.com/`, git forces SSH for **both public and private** repositories. On machines without an SSH key, this triggers `Permission denied (publickey)` even on open-source repos.
+- **Aquamarine EGL Render Loop**: A virtual GPU rendering failure where Hyprland's backend repeatedly logs DRM/EGL query errors on every frame commit. In VMware guests, this loop floods `/run/user/1000/hypr/.../hyprland.log` at hundreds of megabytes per minute unless directed to `/dev/null`.
 
 ---
 
@@ -184,22 +190,55 @@ make install    # Installs to ~/.local/bin and configures dpipe alias
 
 Deploy Omacorn across all your machines—whether bare metal CachyOS, immutable Fedora Atomic (RakuOS), or Debian/Ubuntu (PikaOS):
 
-### Option 1: One-Liner Remote Deployment
+> [!WARNING]
+> **The `insteadOf` Git Trap**:  
+> If your global git config contains `url.git@github.com:.insteadof=https://github.com/`, git forces SSH across **both public and private repositories**. On any new machine or container lacking an SSH key, running `git clone` will fail with `Permission denied (publickey)`.
+
+### Option 1: Modern Cloud-Native Onboarding (`gh auth login`)
+Recommended for secondary laptops, immutable distros, and new workstations:
 ```bash
-# Clone repository and execute distro-aware installer
-git clone git@github.com:oomaya/Omacorn.git && cd Omacorn && ./scripts/install.sh
+# 1. Authenticate GitHub CLI (generates & uploads dedicated per-device SSH key)
+gh auth login
+# ? What account do you want to log in to? GitHub.com
+# ? What is your preferred protocol for Git operations? SSH
+# ? Generate a new SSH key to add to your GitHub account? Yes
+# ? How would you like to authenticate? Login with a web browser
+
+# 2. Clone and install
+gh repo clone oomaya/Omacorn
+cd Omacorn && ./scripts/install.sh
 ```
 
 ### Option 2: Immutable / Atomic OS (RakuOS / Fedora Atomic / Silverblue)
-On atomic operating systems where `/usr` is read-only and local compilers are segregated into containers:
-1. Omacorn installs strictly into user-space (`~/.local/bin/omacorn`), requiring **zero root modifications or rpm-ostree layering**.
-2. Run `make static` or download the pre-compiled `omacorn-linux-amd64` binary.
-3. Enable user-space engine:
-   ```bash
-   omacorn start spoofdpi
-   ```
+On atomic operating systems where `/usr` is read-only and local compilers are segregated:
+Omacorn installs strictly into user-space (`~/.local/bin/omacorn`), requiring **zero root modifications or rpm-ostree layering**.
 
-### Option 3: Debian / Ubuntu / PikaOS
+**Direct Binary Install (No Git Clone Required)**:
+```bash
+# 1. Download pre-compiled static binary directly
+mkdir -p ~/.local/bin
+curl -sSL "https://github.com/oomaya/Omacorn/releases/latest/download/omacorn-linux-amd64" -o ~/.local/bin/omacorn
+chmod +x ~/.local/bin/omacorn
+ln -sf ~/.local/bin/omacorn ~/.local/bin/dpipe
+
+# 2. Install and launch Main Pilot
+omacorn install spoofdpi
+omacorn start spoofdpi
+omacorn proxy on
+```
+
+### Option 3: Dedicated Per-Device SSH Key (Classic DevOps)
+If you prefer manual SSH key management without GitHub CLI:
+```bash
+# Generate dedicated keypair for the device
+ssh-keygen -t ed25519 -C "rand@rakuos" -f ~/.ssh/id_ed25519
+cat ~/.ssh/id_ed25519.pub
+# Add key at: https://github.com/settings/keys
+
+git clone git@github.com:oomaya/Omacorn.git && cd Omacorn && ./scripts/install.sh
+```
+
+### Option 4: Debian / Ubuntu / PikaOS
 1. Install prerequisites:
    ```bash
    sudo apt update && sudo apt install -y libcap2-bin curl

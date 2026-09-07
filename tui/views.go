@@ -76,34 +76,42 @@ func (m Model) View() string {
 }
 
 func (m Model) renderDashboard() string {
-	// Engine 1: SpoofDPI Card
-	spoofBadge := BadgeInactive.Render("INACTIVE")
+	// Pilot 1: SpoofDPI (Main Pilot) Card
+	spoofBadge := BadgeInactive.Render("STANDBY")
 	cardStyle1 := CardStyle
 	if m.status.SpoofActive {
-		spoofBadge = BadgeActive.Render("ACTIVE (RUNNING)")
+		spoofBadge = BadgeActive.Render("ACTIVE (IN COMMAND)")
 		cardStyle1 = ActiveCardStyle
 	}
 	content1 := fmt.Sprintf(
-		"%s  %s\nAddress: %s\nUptime:  %s\nScope:   User Space ($XDG_RUNTIME_DIR) • Zero Root",
-		lipgloss.NewStyle().Bold(true).Foreground(ColorWhite).Render("Engine 1: SpoofDPI"),
+		"%s  %s\nAddress: %s\nUptime:  %s\nRole:    Main Pilot • User Space ($XDG_RUNTIME_DIR) • Safe for VMs & Containers",
+		lipgloss.NewStyle().Bold(true).Foreground(ColorWhite).Render("Pilot 1: SpoofDPI (Main Pilot)"),
 		spoofBadge,
 		m.status.SpoofAddr,
 		m.status.SpoofUptime,
 	)
 	box1 := cardStyle1.Width(74).Render(content1)
 
-	// Engine 2: Gecit Card
-	gecitBadge := BadgeInactive.Render("INACTIVE")
+	// Pilot 2: Gecit (Co-Pilot / Standby) Card
+	gecitBadge := BadgeInactive.Render("STANDBY")
 	cardStyle2 := CardStyle
 	if m.status.GecitActive {
-		gecitBadge = BadgeActive.Render("ACTIVE (RUNNING)")
+		gecitBadge = BadgeActive.Render("ACTIVE (IN COMMAND)")
 		cardStyle2 = ActiveCardStyle
 	}
+	if m.status.SpoofActive && m.status.GecitActive {
+		gecitBadge = lipgloss.NewStyle().Foreground(ColorRed).Bold(true).Render("⚠️ DUAL PILOT CONFLICT")
+	}
+	gecitRole := "Co-Pilot / Standby • Kernel Root Cgroup (eBPF sock_ops) • High Speed for Bare Metal"
+	if m.status.IsHypervisor {
+		gecitRole = fmt.Sprintf("Co-Pilot (Standby) • ⚠️ %s Guest (eBPF packet crafting can cause hypervisor DMA faults)", strings.ToUpper(m.status.HypervisorName))
+	}
 	content2 := fmt.Sprintf(
-		"%s  %s\nMode:    Transparent System-Wide (eBPF sock_ops)\nUptime:  %s\nScope:   Kernel Root Cgroup • Hardened MSS 88 • Restore @ 600B",
-		lipgloss.NewStyle().Bold(true).Foreground(ColorWhite).Render("Engine 2: Gecit (eBPF)"),
+		"%s  %s\nMode:    Transparent System-Wide (eBPF sock_ops)\nUptime:  %s\nRole:    %s",
+		lipgloss.NewStyle().Bold(true).Foreground(ColorWhite).Render("Pilot 2: Gecit (Co-Pilot)"),
 		gecitBadge,
 		m.status.GecitUptime,
+		gecitRole,
 	)
 	box2 := cardStyle2.Width(74).Render(content2)
 

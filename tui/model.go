@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"dpipe/engine"
@@ -146,31 +147,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeTab = 2
 
 		case "s":
-			m.notification = "Switching to SpoofDPI..."
+			m.notification = "Handoff: Co-Pilot stepping down. Main Pilot (SpoofDPI) taking command..."
 			engine.StopGecit()
 			_, err := engine.StartSpoofDPI()
 			if err != nil {
 				m.notification = fmt.Sprintf("SpoofDPI start error: %v", err)
 			} else {
-				m.notification = "Engine 1 (SpoofDPI) is ACTIVE."
+				m.notification = "Pilot 1 (SpoofDPI) is IN COMMAND."
 			}
 			m.status = engine.GetSystemStatus()
 
 		case "g":
-			m.notification = "Switching to Gecit (eBPF)..."
+			if m.status.IsHypervisor {
+				m.notification = fmt.Sprintf("⚠️ %s VM detected! Gecit eBPF can cause hypervisor DMA faults. Main Pilot recommended.", strings.ToUpper(m.status.HypervisorName))
+			} else {
+				m.notification = "Handoff: Main Pilot stepping down. Co-Pilot (Gecit eBPF) taking command..."
+			}
 			engine.StopSpoofDPI()
 			_, err := engine.StartGecit()
 			if err != nil {
 				m.notification = fmt.Sprintf("Gecit start error: %v", err)
 			} else {
-				m.notification = "Engine 2 (Gecit) is ACTIVE."
+				m.notification = "Pilot 2 (Gecit) is IN COMMAND."
 			}
 			m.status = engine.GetSystemStatus()
 
 		case "x":
 			engine.StopSpoofDPI()
 			engine.StopGecit()
-			m.notification = "All bypass engines STOPPED."
+			m.notification = "All bypass pilots DISENGAGED."
 			m.status = engine.GetSystemStatus()
 
 		case "p":

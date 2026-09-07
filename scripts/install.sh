@@ -102,6 +102,21 @@ if [[ -f "./main.go" ]]; then
 fi
 log_ok "Installed 'omacorn' and alias 'dpipe' to ${BIN_DIR}"
 
+# Check PATH inclusion
+if [[ ":${PATH}:" != *":${BIN_DIR}:"* ]]; then
+    log_warn "${BIN_DIR} is NOT in your current PATH!"
+    if command -v fish &>/dev/null || [[ "${SHELL:-}" == *"fish"* ]] || [[ -n "${FISH_VERSION:-}" ]]; then
+        echo "       👉 Fish shell detected! Adding ${BIN_DIR} to universal fish_user_paths..."
+        if fish -c "fish_add_path ${BIN_DIR}" 2>/dev/null; then
+            log_ok "Successfully executed 'fish_add_path ${BIN_DIR}'"
+        else
+            echo "       Please manually run in fish: fish_add_path ${BIN_DIR}"
+        fi
+    else
+        echo "       👉 Add it to your shell config: export PATH=\"${BIN_DIR}:\$PATH\""
+    fi
+fi
+
 # 3. Verify or Install SpoofDPI Engine
 log_step "Checking Engine 1 (SpoofDPI)..."
 SPOOFDPI_BIN=""
@@ -123,6 +138,12 @@ else
         SPOOFDPI_BIN="${BIN_DIR}/spoofdpi"
         rm -rf "${SPOOF_TMP}"
     fi
+fi
+
+# Ensure spoofdpi is deployed directly in ~/.local/bin
+if [[ -f "${SPOOFDPI_BIN}" && "${SPOOFDPI_BIN}" != "${BIN_DIR}/spoofdpi" ]]; then
+    cp "${SPOOFDPI_BIN}" "${BIN_DIR}/spoofdpi"
+    SPOOFDPI_BIN="${BIN_DIR}/spoofdpi"
 fi
 
 if [[ -z "${SPOOFDPI_BIN}" || ! -x "${SPOOFDPI_BIN}" ]]; then
@@ -178,6 +199,15 @@ log_ok "Registered Omacorn in application menu"
 
 # 9. Live Verification Probe
 echo ""
+log_step "Waiting for SpoofDPI proxy to initialize on 127.0.0.1:8080..."
+sleep 1
+for i in {1..6}; do
+    if "${BIN_DIR}/omacorn" test &>/dev/null; then
+        break
+    fi
+    sleep 0.5
+done
+
 log_step "Executing live verification probe..."
 "${BIN_DIR}/omacorn" test
 
