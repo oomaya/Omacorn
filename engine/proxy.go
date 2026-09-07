@@ -2,6 +2,7 @@ package engine
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -48,11 +49,53 @@ var BrowserFlagFiles = []string{
 	"vivaldi-stable.conf",
 }
 
+var FlatpakBrowserMap = map[string]string{
+	"com.brave.Browser":         "brave-flags.conf",
+	"com.brave.Browser.beta":    "brave-flags.conf",
+	"com.brave.Browser.nightly": "brave-flags.conf",
+	"com.brave.Browser.dev":     "brave-flags.conf",
+	"org.chromium.Chromium":     "chromium-flags.conf",
+	"com.google.Chrome":         "chrome-flags.conf",
+	"com.google.ChromeDev":      "chrome-flags.conf",
+	"com.vivaldi.Vivaldi":       "vivaldi-flags.conf",
+	"com.microsoft.Edge":        "edge-flags.conf",
+}
+
 const (
 	browserProxyFlag     = "--proxy-server=http://127.0.0.1:8080"
 	browserBypassFlag    = "--proxy-bypass-list=<-loopback>;localhost;*.google.com;accounts.google.com;googleapis.com"
 	browserCommentHeader = "# Omacorn native proxy routing (bypasses Google Auth & localhost)"
 )
+
+func updateFlagFile(p string, enable bool) {
+	var lines []string
+	if data, err := os.ReadFile(p); err == nil {
+		lines = strings.Split(string(data), "\n")
+	} else if !enable {
+		return
+	}
+
+	var newLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "--proxy-server=") ||
+			strings.HasPrefix(trimmed, "--proxy-bypass-list=") ||
+			trimmed == browserCommentHeader {
+			continue
+		}
+		newLines = append(newLines, line)
+	}
+
+	if enable {
+		newLines = append(newLines, "", browserCommentHeader, browserProxyFlag, browserBypassFlag)
+	}
+
+	content := strings.TrimSpace(strings.Join(newLines, "\n"))
+	if content != "" {
+		content += "\n"
+	}
+	_ = os.WriteFile(p, []byte(content), 0644)
+}
 
 func syncBrowserFlags(enable bool) {
 	home, err := os.UserHomeDir()
@@ -60,6 +103,7 @@ func syncBrowserFlags(enable bool) {
 		return
 	}
 
+	// 1. Native host config directories (~/.config and ~/dotfiles/omarchy/.config)
 	configDirs := []string{
 		filepath.Join(home, ".config"),
 		filepath.Join(home, "dotfiles", "omarchy", ".config"),
@@ -80,27 +124,49 @@ func syncBrowserFlags(enable bool) {
 				}
 			}
 
-			data, err := os.ReadFile(p)
-			if err != nil {
+			updateFlagFile(p, enable)
+		}
+	}
+
+	// 2. Flatpak application config directories (~/.var/app/<app-id>/config/)
+	varAppDir := filepath.Join(home, ".var", "app")
+	if entries, err := os.ReadDir(varAppDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
 				continue
 			}
-			lines := strings.Split(string(data), "\n")
-			var newLines []string
-			for _, line := range lines {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasPrefix(trimmed, "--proxy-server=") ||
-					strings.HasPrefix(trimmed, "--proxy-bypass-list=") ||
-					trimmed == browserCommentHeader {
-					continue
-				}
-				newLines = append(newLines, line)
+			appID := entry.Name()
+			flagName, ok := FlatpakBrowserMap[appID]
+			if !ok {
+				continue
 			}
 
-			if enable {
-				newLines = append(newLines, "", browserCommentHeader, browserProxyFlag, browserBypassFlag)
+			flatpakCfgDir := filepath.Join(varAppDir, appID, "config")
+			if err := os.MkdirAll(flatpakCfgDir, 0755); err != nil {
+				continue
 			}
 
-			_ = os.WriteFile(p, []byte(strings.TrimSpace(strings.Join(newLines, "\n"))+"\n"), 0644)
+			p := filepath.Join(flatpakCfgDir, flagName)
+			updateFlagFile(p, enable)
+		}
+	}
+
+	// 3. User-level Flatpak environment overrides (for sandboxed browsers/apps like Firefox Flatpak)
+	if _, err := exec.LookPath("flatpak"); err == nil {
+		if enable {
+			RunCmd("flatpak", "override", "--user",
+				"--env=http_proxy=http://127.0.0.1:8080",
+				"--env=https_proxy=http://127.0.0.1:8080",
+				"--env=all_proxy=http://127.0.0.1:8080",
+				"--env=no_proxy=localhost,127.0.0.1,*.local,*.google.com,accounts.google.com,googleapis.com",
+			)
+		} else {
+			RunCmd("flatpak", "override", "--user",
+				"--unset-env=http_proxy",
+				"--unset-env=https_proxy",
+				"--unset-env=all_proxy",
+				"--unset-env=no_proxy",
+			)
 		}
 	}
 }

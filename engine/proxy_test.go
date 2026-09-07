@@ -114,6 +114,53 @@ func TestSyncBrowserFlags(t *testing.T) {
 	}
 }
 
+func TestSyncBrowserFlags_Flatpak(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Mock Flatpak Brave app dir: ~/.var/app/com.brave.Browser/config/
+	flatpakCfgDir := filepath.Join(tmpDir, ".var", "app", "com.brave.Browser", "config")
+	if err := os.MkdirAll(flatpakCfgDir, 0755); err != nil {
+		t.Fatalf("failed to create mock flatpak dir: %v", err)
+	}
+
+	braveFlatpakFlags := filepath.Join(flatpakCfgDir, "brave-flags.conf")
+	initialContent := "--enable-features=UseOzonePlatform\n"
+	if err := os.WriteFile(braveFlatpakFlags, []byte(initialContent), 0644); err != nil {
+		t.Fatalf("failed to write mock flatpak flags: %v", err)
+	}
+
+	// 1. Enable proxy flags for Flatpak
+	syncBrowserFlags(true)
+
+	updatedData, err := os.ReadFile(braveFlatpakFlags)
+	if err != nil {
+		t.Fatalf("failed to read updated flatpak flags: %v", err)
+	}
+	updatedContent := string(updatedData)
+	if !strings.Contains(updatedContent, "--proxy-server=http://127.0.0.1:8080") {
+		t.Errorf("expected proxy-server flag to be injected in flatpak flags: %s", updatedContent)
+	}
+	if !strings.Contains(updatedContent, "--enable-features=UseOzonePlatform") {
+		t.Errorf("expected original flatpak flags to be preserved: %s", updatedContent)
+	}
+
+	// 2. Disable proxy flags for Flatpak
+	syncBrowserFlags(false)
+
+	revertedData, err := os.ReadFile(braveFlatpakFlags)
+	if err != nil {
+		t.Fatalf("failed to read reverted flatpak flags: %v", err)
+	}
+	revertedContent := string(revertedData)
+	if strings.Contains(revertedContent, "--proxy-server=http://127.0.0.1:8080") {
+		t.Errorf("expected proxy-server flag to be removed from flatpak flags: %s", revertedContent)
+	}
+	if !strings.Contains(revertedContent, "--enable-features=UseOzonePlatform") {
+		t.Errorf("expected original flatpak flags to remain preserved: %s", revertedContent)
+	}
+}
+
 func TestToggleSystemProxy(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
