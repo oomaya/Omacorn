@@ -59,23 +59,54 @@ esac
 
 if [[ -f "./omacorn" && -x "./omacorn" ]]; then
     log_ok "Using pre-compiled Omacorn binary from repository."
-    cp ./omacorn "${BIN_DIR}/omacorn"
+    install -Dm755 ./omacorn "${BIN_DIR}/omacorn"
 elif [[ -f "./main.go" ]] && command -v go &>/dev/null; then
     log_step "Go compiler detected ($(go version | awk '{print $3}')). Compiling static Omacorn binary..."
     CGO_ENABLED=0 go build -ldflags="-s -w" -o omacorn .
-    cp omacorn "${BIN_DIR}/omacorn"
+    install -Dm755 omacorn "${BIN_DIR}/omacorn"
 else
     log_step "Fetching latest static Omacorn release for linux-${ARCH_SUFFIX}..."
     OMACORN_DL_URL="https://github.com/oomaya/Omacorn/releases/latest/download/omacorn-linux-${ARCH_SUFFIX}"
-    if curl -sSLf "${OMACORN_DL_URL}" -o "${BIN_DIR}/omacorn" 2>/dev/null; then
-        log_ok "Downloaded static release binary from GitHub"
-    elif command -v go &>/dev/null; then
+    DOWNLOADED=false
+
+    # Strategy A: GitHub CLI for private repository access
+    if command -v gh &>/dev/null && gh auth status &>/dev/null; then
+        log_step "Authenticated GitHub CLI detected. Downloading asset from oomaya/Omacorn..."
+        TMP_OMACORN="$(mktemp -d)"
+        if gh release download --repo oomaya/Omacorn --pattern "omacorn-linux-${ARCH_SUFFIX}" --dir "${TMP_OMACORN}" 2>/dev/null; then
+            install -Dm755 "${TMP_OMACORN}/omacorn-linux-${ARCH_SUFFIX}" "${BIN_DIR}/omacorn"
+            rm -rf "${TMP_OMACORN}"
+            DOWNLOADED=true
+            log_ok "Downloaded and deployed release binary via GitHub CLI"
+        fi
+    fi
+
+    # Strategy B: Authenticated or direct curl
+    if [[ "${DOWNLOADED}" != "true" ]]; then
+        AUTH_HEADER=()
+        if [[ -n "${GITHUB_TOKEN:-${GH_TOKEN:-}}" ]]; then
+            AUTH_HEADER=(-H "Authorization: token ${GITHUB_TOKEN:-$GH_TOKEN}")
+        fi
+        TMP_DL="$(mktemp)"
+        if curl -sSLf "${AUTH_HEADER[@]}" "${OMACORN_DL_URL}" -o "${TMP_DL}" 2>/dev/null; then
+            install -Dm755 "${TMP_DL}" "${BIN_DIR}/omacorn"
+            rm -f "${TMP_DL}"
+            DOWNLOADED=true
+            log_ok "Downloaded static release binary from GitHub"
+        fi
+    fi
+
+    # Strategy C: Go build fallback
+    if [[ "${DOWNLOADED}" != "true" ]] && command -v go &>/dev/null; then
         log_step "Compiling from source via go install..."
         go install github.com/oomaya/Omacorn@latest 2>/dev/null || true
         if [[ -x "${HOME}/go/bin/Omacorn" ]]; then
-            cp "${HOME}/go/bin/Omacorn" "${BIN_DIR}/omacorn"
+            install -Dm755 "${HOME}/go/bin/Omacorn" "${BIN_DIR}/omacorn"
+            DOWNLOADED=true
         fi
-    else
+    fi
+
+    if [[ "${DOWNLOADED}" != "true" && ! -x "${BIN_DIR}/omacorn" ]]; then
         log_err "Neither pre-compiled binary, GitHub release, nor Go compiler found."
         echo "       Please install Go according to your system:"
         case "${DISTRO_ID}" in
@@ -142,7 +173,7 @@ fi
 
 # Ensure spoofdpi is deployed directly in ~/.local/bin
 if [[ -f "${SPOOFDPI_BIN}" && "${SPOOFDPI_BIN}" != "${BIN_DIR}/spoofdpi" ]]; then
-    cp "${SPOOFDPI_BIN}" "${BIN_DIR}/spoofdpi"
+    install -Dm755 "${SPOOFDPI_BIN}" "${BIN_DIR}/spoofdpi"
     SPOOFDPI_BIN="${BIN_DIR}/spoofdpi"
 fi
 
@@ -152,15 +183,17 @@ if [[ -z "${SPOOFDPI_BIN}" || ! -x "${SPOOFDPI_BIN}" ]]; then
 fi
 log_ok "SpoofDPI binary located at: ${SPOOFDPI_BIN}"
 
-# 4. Configure CAP_NET_RAW Capability
-log_step "Ensuring CAP_NET_RAW capability on SpoofDPI for user-space decoy packets..."
+# 4. Check CAP_NET_RAW Capability (Optional on bare metal; skipped in VMs & unprivileged environments)
+log_step "Checking network capabilities for SpoofDPI..."
 CURRENT_CAPS=$(getcap "${SPOOFDPI_BIN}" 2>/dev/null || true)
-if [[ "${CURRENT_CAPS}" != *"cap_net_raw"* ]]; then
-    echo "       Requesting sudo to set: setcap cap_net_raw+ep ${SPOOFDPI_BIN}"
-    sudo setcap cap_net_raw+ep "${SPOOFDPI_BIN}"
+if [[ "${CURRENT_CAPS}" == *"cap_net_raw"* ]]; then
+    log_ok "CAP_NET_RAW capability is already configured."
+elif sudo -n true 2>/dev/null; then
+    echo "       Applying CAP_NET_RAW via passwordless sudo..."
+    sudo setcap cap_net_raw+ep "${SPOOFDPI_BIN}" 2>/dev/null || true
     log_ok "Granted CAP_NET_RAW to ${SPOOFDPI_BIN}"
 else
-    log_ok "CAP_NET_RAW is already configured."
+    log_ok "Running in pure user-space mode (no root/sudo required; hypervisor & bare-metal safe)."
 fi
 
 # 5. Install Systemd User Unit
@@ -180,18 +213,36 @@ log_ok "Proxy wired to ~/.config/environment.d and all browser config files"
 
 # 8. Install Desktop Launcher
 log_step "Installing desktop application launcher (omacorn.desktop)..."
-APP_DIR="${HOME}/.local/share/applications"
+APP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "${APP_DIR}"
-cat << 'EOF' > "${APP_DIR}/omacorn.desktop"
+
+# Dynamically resolve preferred terminal emulator (Zero Hardcoded Literals)
+TERM_BIN=""
+for candidate in "${TERMINAL:-}" ghostty kitty alacritty foot xterm; do
+    if [[ -n "${candidate}" ]] && command -v "${candidate}" &>/dev/null; then
+        TERM_BIN="${candidate}"
+        break
+    fi
+done
+
+if [[ -n "${TERM_BIN}" ]]; then
+    DESKTOP_EXEC="${TERM_BIN} -e omacorn"
+    DESKTOP_TERM="false"
+else
+    DESKTOP_EXEC="omacorn"
+    DESKTOP_TERM="true"
+fi
+
+cat << EOF > "${APP_DIR}/omacorn.desktop"
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=Omacorn
 GenericName=DPI Bypass Dashboard
 Comment=Sovereign Twin-Engine DPI Evasion Daemon & Cyberpunk TUI
-Exec=ghostty --title=Omacorn -e omacorn
+Exec=${DESKTOP_EXEC}
 Icon=network-vpn
-Terminal=false
+Terminal=${DESKTOP_TERM}
 Categories=Network;Security;System;
 EOF
 update-desktop-database "${APP_DIR}" 2>/dev/null || true

@@ -26,7 +26,7 @@ cross:
 
 install: static
 	mkdir -p $(BINDIR)
-	cp $(NAME) $(BINDIR)/$(NAME)
+	install -Dm755 $(NAME) $(BINDIR)/$(NAME)
 	ln -sf $(NAME) $(BINDIR)/dpipe
 	ln -sf $(NAME) dpipe
 	@echo "Installed $(NAME) to $(BINDIR)/$(NAME)"

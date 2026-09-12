@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -19,7 +20,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=%s --no-tui --listen-addr %s --default-fake-ttl 8 --https-fake-count 1 --dns-mode system --log-level warn
+ExecStart=%s
 Restart=on-failure
 RestartSec=3
 
@@ -60,8 +61,27 @@ func InstallSpoofDPI() error {
 		return err
 	}
 
+	// Flight mode selection:
+	// In virtual machines (VMware/KVM/etc) or unprivileged environments,
+	// enforce pure user-space TLS SNI fragmentation (--https-fake-count 0).
+	// On bare metal with CAP_NET_RAW, decoy packet injection (--https-fake-count 1) is allowed.
+	isVirt, _ := DetectHypervisor()
+	hasRawCap := false
+	if out, err := exec.Command("getcap", binPath).Output(); err == nil {
+		if strings.Contains(string(out), "cap_net_raw") {
+			hasRawCap = true
+		}
+	}
+
+	var execCmd string
+	if !isVirt && hasRawCap {
+		execCmd = fmt.Sprintf("%s --no-tui --listen-addr %s --default-fake-ttl 8 --https-fake-count 1 --dns-mode system --log-level warn", binPath, SpoofDefaultAddr)
+	} else {
+		execCmd = fmt.Sprintf("%s --no-tui --listen-addr %s --https-fake-count 0 --dns-mode system --log-level warn", binPath, SpoofDefaultAddr)
+	}
+
 	unitPath := filepath.Join(userSystemdDir, SpoofUnitName+".service")
-	content := fmt.Sprintf(spoofUnitTemplate, binPath, SpoofDefaultAddr)
+	content := fmt.Sprintf(spoofUnitTemplate, execCmd)
 	if err := os.WriteFile(unitPath, []byte(content), 0644); err != nil {
 		return err
 	}
