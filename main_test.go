@@ -479,3 +479,146 @@ func TestHandleUpdateCurlPaths(t *testing.T) {
 		t.Fatalf("rename fail:\n%s", out)
 	}
 }
+
+func writeUpdateScript(t *testing.T, dir, body string) {
+	t.Helper()
+	scripts := filepath.Join(dir, "scripts")
+	if err := os.MkdirAll(scripts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scripts, "update.sh"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHandleUpdateFindsHomeCheckout(t *testing.T) {
+	s := setupCmdStubs(t)
+	writeUpdateScript(t, filepath.Join(s.home, "Omacorn"), "#!/bin/sh\necho tier1-home\nexit 0\n")
+	chdirEmpty(t)
+	out := captureStdout(t, func() { handleUpdate() })
+	if !strings.Contains(out, "tier1-home") || strings.Contains(out, "[fallback]") {
+		t.Fatalf("home checkout should take tier 1:\n%s", out)
+	}
+}
+
+func TestHandleUpdateCwdBeatsHomeCheckout(t *testing.T) {
+	s := setupCmdStubs(t)
+	writeUpdateScript(t, filepath.Join(s.home, "Omacorn"), "#!/bin/sh\necho tier1-home\nexit 0\n")
+	cwd := t.TempDir()
+	writeUpdateScript(t, cwd, "#!/bin/sh\necho tier1-cwd\nexit 0\n")
+	t.Chdir(cwd)
+	out := captureStdout(t, func() { handleUpdate() })
+	if !strings.Contains(out, "tier1-cwd") || strings.Contains(out, "tier1-home") {
+		t.Fatalf("cwd script should win over ~/Omacorn:\n%s", out)
+	}
+}
+
+func TestHandleUpdateFindsGitSubdir(t *testing.T) {
+	setupCmdStubs(t)
+	repo := t.TempDir()
+	init := exec.Command("git", "init")
+	init.Dir = repo
+	if err := init.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	writeUpdateScript(t, repo, "#!/bin/sh\necho tier1-git\nexit 0\n")
+	sub := filepath.Join(repo, "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(sub)
+	out := captureStdout(t, func() { handleUpdate() })
+	if !strings.Contains(out, "tier1-git") || strings.Contains(out, "[fallback]") {
+		t.Fatalf("subdirectory of a checkout should take tier 1:\n%s", out)
+	}
+}
+
+func TestHandleUpdateFindsExecutableCheckout(t *testing.T) {
+	setupCmdStubs(t)
+	repo := t.TempDir()
+	writeUpdateScript(t, repo, "#!/bin/sh\necho tier1-exe\nexit 0\n")
+	exe := filepath.Join(repo, "bin", "omacorn")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdirEmpty(t)
+	orig := osExecutable
+	osExecutable = func() (string, error) { return exe, nil }
+	t.Cleanup(func() { osExecutable = orig })
+	out := captureStdout(t, func() { handleUpdate() })
+	if !strings.Contains(out, "tier1-exe") || strings.Contains(out, "[fallback]") {
+		t.Fatalf("binary inside a checkout should take tier 1:\n%s", out)
+	}
+}
+
+func TestUpdateScriptCandidateOrder(t *testing.T) {
+	t.Chdir(t.TempDir())
+	home := t.TempDir()
+	repo := t.TempDir()
+	writeUpdateScript(t, repo, "#!/bin/sh\necho noop\nexit 0\n")
+	exe := filepath.Join(repo, "bin", "omacorn")
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := updateScriptCandidates(home, exe)
+	if len(paths) == 0 || paths[0] != "." {
+		t.Fatalf("cwd must stay first: %v", paths)
+	}
+	homeCheckout := filepath.Clean(filepath.Join(home, "Omacorn"))
+	projects := filepath.Clean(filepath.Join(home, "Projects", "Omacorn"))
+	exeRoot := filepath.Clean(repo)
+	homeAt, projectsAt, exeAt := -1, -1, -1
+	for i, p := range paths {
+		switch p {
+		case homeCheckout:
+			homeAt = i
+		case projects:
+			projectsAt = i
+		case exeRoot:
+			exeAt = i
+		}
+	}
+	if exeAt < 0 || homeAt < 0 || projectsAt < 0 {
+		t.Fatalf("missing candidates in %v", paths)
+	}
+	if exeAt > homeAt || homeAt > projectsAt {
+		t.Fatalf("expected executable root, then ~/Omacorn, then ~/Projects/Omacorn: %v", paths)
+	}
+}
+
+func TestUpdateScriptCandidatesDedupesGitRootAndHome(t *testing.T) {
+	home := t.TempDir()
+	repo := filepath.Join(home, "Omacorn")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	init := exec.Command("git", "init")
+	init.Dir = repo
+	if err := init.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	sub := filepath.Join(repo, "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(sub)
+
+	paths := updateScriptCandidates(home, "")
+	want := filepath.Clean(repo)
+	count := 0
+	for _, p := range paths {
+		if p == want {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("git root and ~/Omacorn should be one entry, got %d in %v", count, paths)
+	}
+}
