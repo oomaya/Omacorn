@@ -1,23 +1,44 @@
 # CONVENTIONS.md — Omacorn
 
-> Seed draft — architect to confirm with Master (packet 002).
+Official engineering conventions for the Omacorn repository, maintained by the Architect and enforced across all builder packets.
 
-## Code
-- `gofmt -l .` must be clean.
-- `go vet ./...` passes (wired into CI).
-- `go test ./...` green — new engine logic ships with `_test.go` coverage (the repo already does this; keep it).
+## Code Standards
+- `gofmt -l .` must be clean across all Go files.
+- `go vet ./...` must pass with zero warnings (enforced in Makefile and GitHub Actions CI).
+- `go test -race ./...` must pass with zero data races.
+- New features or bug fixes must include unit or golden regression tests.
+- Zero CGO runtime dependencies (`CGO_ENABLED=0` static builds).
 
-## Packets & branches
-- Packets: `.agents/tasks/NNN-slug.md` → completed move to `.agents/tasks/done/`
-- Branches: `packet/NNN-slug` (one packet = one branch = one worktree)
-- One packet = one PR-sized change.
+## Host-Neutrality Invariant (Anti-Environment Assumption Law)
+- Tests must **never assert on host-specific hardware, hypervisor types (`vmware`, `kvm`, `microsoft`), usernames, or home paths**.
+- Always query dynamic detection helpers (`engine.DetectHypervisor()`, `$HOME`, `$XDG_CONFIG_HOME`) or use hermetic test fixtures.
+- Test suites must execute and pass identically on bare metal (Arch/CachyOS), virtual machines (VMware/QEMU), and CI cloud runners (Azure/GitHub Actions).
+
+## Packets & Worktrees
+- Task Packets: `.agents/tasks/NNN-slug.md` (completed packets move to `tasks/done/`).
+- Task Scaffolding Lifecycle: The Architect must create and commit the task packet scaffold to `master` **before** the builder checks out an isolated worktree branch. This prevents untracked root collisions during `git merge`.
+- Branches & Worktrees: `packet/NNN-slug` (one packet = one branch = one isolated worktree).
+- One packet = one PR-sized, bounded scope with explicit non-goals.
+- Worktrees operate in non-overlapping filesystem domains to ensure deterministic, zero-conflict merges.
 
 ## Commits
-- Proposed: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`). *[Master to confirm — packet 002.]*
+- Standard: Conventional Commits.
+  - `feat:` — User-facing feature or CLI command addition.
+  - `fix:` — Bug fix or behavioral correction.
+  - `test:` — Test suite additions, golden snapshots, or coverage fixes.
+  - `docs:` — Documentation, architectural reviews, or task packet updates.
+  - `chore:` — Dependency updates, tooling, or release version bumps.
 
-## Reviews
-- Reviewers are read-only. Remediation becomes a new bounded packet, never a fix-commit.
-- Verdicts: `APPROVED` / `CHANGES REQUESTED`, filed in `.agents/reviews/NNN-slug.md`.
+## Reviews & Verification
+- Reviewers are strictly read-only. Remediation becomes a new bounded packet, never an ad-hoc fix-commit during review.
+- Verdicts: `APPROVED` or `CHANGES REQUESTED`, recorded in `.agents/reviews/NNN-slug.md`.
+- Remote Verification Tollgate: The Architect must poll and confirm GitHub Actions CI (`gh run list` / `gh run watch`) post-push before certifying milestone completion.
 
-## Definition of done
-- [ ] Acceptance criteria met · [ ] `gofmt`/`vet`/`test` green · [ ] no out-of-scope changes in diff · [ ] review APPROVED · [ ] packet archived
+## Definition of Done
+- [ ] Packet acceptance criteria fully satisfied.
+- [ ] Non-goals strictly respected (zero scope creep in diff).
+- [ ] Host-neutrality verified (runs cleanly on bare metal, VMs, and CI).
+- [ ] `gofmt`, `go vet`, and `go test -race ./...` clean locally.
+- [ ] Architect review `APPROVED`.
+- [ ] Merged cleanly into `master` and verified green in GitHub Actions CI.
+- [ ] Task packet moved to `.agents/tasks/done/`.
