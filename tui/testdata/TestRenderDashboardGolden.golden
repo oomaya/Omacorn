@@ -1,0 +1,31 @@
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Pilot 1: SpoofDPI (Main Pilot)   ACTIVE (IN COMMAND)                     │
+│ Address: 127.0.0.1:8080                                                  │
+│ Uptime:  Sun 2026-09-27 12:00:00 KST                                     │
+│ Role:    Main Pilot • User Space ($XDG_RUNTIME_DIR) • Safe for VMs &     │
+│ Containers                                                               │
+└──────────────────────────────────────────────────────────────────────────┘
+                                                                            
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Pilot 2: Gecit (Co-Pilot)   STANDBY                                      │
+│ Mode:    Transparent System-Wide (eBPF sock_ops)                         │
+│ Uptime:                                                                  │
+│ Role:    Co-Pilot / Standby • Kernel Root Cgroup (eBPF sock_ops) • High  │
+│ Speed for Bare Metal                                                     │
+└──────────────────────────────────────────────────────────────────────────┘
+                                                                            
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Desktop System Proxy:   ENABLED (~/.config/environment.d)                │
+│ Path:    ~/.config/environment.d/20-omacorn-proxy.conf                   │
+│ Targets: Native flags synced for Brave (all variants), Chromium,         │
+│ Vivaldi, Firefox                                                         │
+│ VPN:     Inactive (Omacorn direct protection)                            │
+│ Bypass:  accounts.google.com, localhost, RFC1918 strictly exempted       │
+└──────────────────────────────────────────────────────────────────────────┘
+                                                                            
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Live Network Probes:                                                     │
+│ • Google Auth (accounts.google.com): HTTP 200 in 45ms (TLS 1.3 Intact)   │
+│ • Blocked Target (<test-target>): UNBLOCKED: HTTP 200 in 82ms            │
+└──────────────────────────────────────────────────────────────────────────┘
+                                                                            

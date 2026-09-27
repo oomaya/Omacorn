@@ -1,0 +1,29 @@
+┌──────────────────────────────────────────────────────────────────────────┐
+│ System Diagnostics & Safety Guardrails                                   │
+│                                                                          │
+│ 1. DNS Protection:                                                       │
+│    PASS: systemd-resolved (protected)                                    │
+│                                                                          │
+│ 2. Kernel eBPF & Capability Posture:                                     │
+│    • SpoofDPI: Has CAP_NET_RAW (Enables low-TTL decoy packet injection   │
+│ as unprivileged user)                                                    │
+│    • Gecit:    Has CAP_BPF, CAP_PERFMON, CAP_SYS_ADMIN (Allows BPF ring  │
+│ buffers)                                                                 │
+│                                                                          │
+│ 3. Split-Tunneling & Protocol Exclusions:                                │
+│    • ACTIVE (27 rules, Google Auth & Telegram MTProto bypassed)          │
+│    • Telegram MTProto: Direct to Origin (all_proxy omitted; raw TCP      │
+│ preserved)                                                               │
+│    • CLI Management: 'omacorn exclude list' or 'omacorn run-clean <app>' │
+│                                                                          │
+│ 4. Hypervisor Safety Guardrails:                                         │
+│    • Handshake MSS restore enforced at 600 bytes (Protects VMware SVGA   │
+│ DMA range)                                                               │
+│    • --doh=false enforced (Protects /etc/resolv.conf from tampering)     │
+│    • ExecStopPost auto-cleanup traps enabled on service teardown         │
+│                                                                          │
+│ 5. Emergency System Recovery:                                            │
+│    Press 'C' at any time to instantly purge all eBPF hooks and stop all  │
+│ daemons.                                                                 │
+└──────────────────────────────────────────────────────────────────────────┘
+                                                                            
