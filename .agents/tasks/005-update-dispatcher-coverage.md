@@ -1,6 +1,6 @@
 # Packet 005 — Update() dispatcher coverage
 
-**Status:** active
+**Status:** complete
 **Branch:** `packet/005-update-dispatcher-coverage`
 **Author (architect):** Antigravity
 **Date:** 2026-09-27
@@ -63,5 +63,9 @@ Validation: `gofmt -l .` clean, `go vet ./...` clean, `go test ./...` pass. `go 
 
 ### Review (filled by architect — read-only)
 
-**Verdict:** `APPROVED` | `CHANGES REQUESTED`
+**Verdict:** `APPROVED`
 **Notes:**
+- 100% statement coverage achieved for `Update()` in `tui/model.go` (elevated from 51.5%; `tui` package total reached 83.1%).
+- Comprehensive coverage of all previously unhandled message and key branches: tab transitions (`loadLogsCmd`), key dispatches (`s`, `g`, `x`, `p`, `c`), hypervisor notifications, error pathways, `ctrl+c`, double-tap probe guarding, and nil/unknown message safety.
+- Sandbox safety preserved: `isolatePilotCommands` stubs all system commands (`systemctl`, `sudo`, `journalctl`, `flatpak`, `gecit`, `getcap`), redirecting `HOME` to a temporary directory and safeguarding the live environment.
+- Verification clean: `go test -race ./tui/`, `gofmt -l .`, and `go vet ./...` all passing with zero issues.
