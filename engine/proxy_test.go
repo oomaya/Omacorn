@@ -192,3 +192,51 @@ func TestToggleSystemProxy(t *testing.T) {
 		t.Errorf("expected 2nd toggle to disable proxy")
 	}
 }
+
+func BenchmarkGenerateProxyConfigContent(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = GenerateProxyConfigContent()
+	}
+}
+
+func BenchmarkCompileBrowserBypass(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CompileBrowserBypass()
+	}
+}
+
+func BenchmarkCompileNoProxy(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = CompileNoProxy()
+	}
+}
+
+func BenchmarkUpdateFlagFile(b *testing.B) {
+	tmpDir := b.TempDir()
+	flagPath := filepath.Join(tmpDir, "brave-flags.conf")
+	initialContent := "--ozone-platform=wayland\n--top-chrome-touch-ui=disabled\n"
+	if err := os.WriteFile(flagPath, []byte(initialContent), 0644); err != nil {
+		b.Fatalf("failed to prepare initial flag file: %v", err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		updateFlagFile(flagPath, i%2 == 0)
+	}
+}
+
+func BenchmarkIsProxyConfigured(b *testing.B) {
+	tmpDir := b.TempDir()
+	b.Setenv("HOME", tmpDir)
+	_ = EnableSystemProxy()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = IsProxyConfigured()
+	}
+}
