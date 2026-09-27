@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -146,5 +148,184 @@ func TestModelInit(t *testing.T) {
 	cmd := m.Init()
 	if cmd == nil {
 		t.Errorf("expected Init() to return batch command")
+	}
+}
+
+// isolatePilotCommands puts stub systemctl/sudo/flatpak binaries ahead of PATH
+// and points HOME at a temp dir. Update keys must not touch the live user session.
+func isolatePilotCommands(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	script := []byte(`#!/bin/sh
+name=$(basename "$0")
+case ",${STUB_FAIL}," in
+*,"$name",*) echo "stub-fail" >&2; exit 1 ;;
+esac
+echo "stub-ok"
+exit 0
+`)
+	for _, name := range []string{"systemctl", "sudo", "journalctl", "flatpak", "gecit", "getcap"} {
+		if err := os.WriteFile(filepath.Join(bin, name), script, 0o755); err != nil {
+			t.Fatalf("write stub %s: %v", name, err)
+		}
+	}
+	t.Setenv("STUB_FAIL", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	keys := []string{"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
+	prev := map[string]string{}
+	present := map[string]bool{}
+	for _, k := range keys {
+		if v, ok := os.LookupEnv(k); ok {
+			prev[k] = v
+			present[k] = true
+		}
+	}
+	t.Cleanup(func() {
+		for _, k := range keys {
+			if present[k] {
+				_ = os.Setenv(k, prev[k])
+			} else {
+				_ = os.Unsetenv(k)
+			}
+		}
+	})
+}
+
+func keyRunes(s string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
+
+func TestUpdateUncoveredBranches(t *testing.T) {
+	isolatePilotCommands(t)
+	m := newTestModel()
+
+	got, cmd := m.Update(nil)
+	if _, ok := got.(Model); !ok {
+		t.Fatalf("nil message: expected Model, got %T", got)
+	}
+	if cmd != nil {
+		t.Fatal("nil message on dashboard: expected no command")
+	}
+
+	type unknownMsg struct{}
+	got, cmd = m.Update(unknownMsg{})
+	if _, ok := got.(Model); !ok {
+		t.Fatalf("unknown message: expected Model, got %T", got)
+	}
+	if cmd != nil {
+		t.Fatal("unknown message on dashboard: expected no command")
+	}
+
+	m.activeTab = 1
+	got, _ = m.Update(nil)
+	if got.(Model).activeTab != 1 {
+		t.Fatal("nil message on logs tab should keep the tab")
+	}
+	m.activeTab = 0
+
+	got, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("ctrl+c: expected quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("ctrl+c: expected QuitMsg, got %T", cmd())
+	}
+
+	got, cmd = m.Update(keyRunes("tab"))
+	updated := got.(Model)
+	if updated.activeTab != 1 {
+		t.Fatalf("tab from dashboard: expected logs tab, got %d", updated.activeTab)
+	}
+	if cmd == nil {
+		t.Fatal("tab onto logs: expected loadLogsCmd")
+	}
+
+	updated.probing = true
+	updated.activeTab = 0
+	before := updated.notification
+	got, cmd = updated.Update(keyRunes("t"))
+	updated = got.(Model)
+	if !updated.probing {
+		t.Fatal("second t: probing must stay latched")
+	}
+	if updated.notification != before {
+		t.Fatalf("second t: notification changed to %q", updated.notification)
+	}
+	if cmd != nil {
+		t.Fatal("second t: expected no new probe command")
+	}
+
+	got, _ = updated.Update(keyRunes("s"))
+	updated = got.(Model)
+	if updated.notification != "Pilot 1 (SpoofDPI) is IN COMMAND." {
+		t.Fatalf("s success: %q", updated.notification)
+	}
+
+	updated.status.IsHypervisor = false
+	updated.status.HypervisorName = ""
+	got, _ = updated.Update(keyRunes("g"))
+	updated = got.(Model)
+	if updated.notification != "Pilot 2 (Gecit) is IN COMMAND." {
+		t.Fatalf("g bare-metal success: %q", updated.notification)
+	}
+
+	t.Setenv("STUB_FAIL", "sudo")
+	updated.status.IsHypervisor = true
+	updated.status.HypervisorName = "vmware"
+	got, _ = updated.Update(keyRunes("g"))
+	updated = got.(Model)
+	if !strings.Contains(updated.notification, "Gecit start error") {
+		t.Fatalf("g error: %q", updated.notification)
+	}
+
+	t.Setenv("STUB_FAIL", "")
+	got, _ = updated.Update(keyRunes("x"))
+	updated = got.(Model)
+	if updated.notification != "All bypass pilots DISENGAGED." {
+		t.Fatalf("x: %q", updated.notification)
+	}
+
+	got, _ = updated.Update(keyRunes("p"))
+	updated = got.(Model)
+	if updated.notification != "System proxy ENABLED in ~/.config/environment.d/" {
+		t.Fatalf("p enable: %q", updated.notification)
+	}
+	got, _ = updated.Update(keyRunes("p"))
+	updated = got.(Model)
+	if updated.notification != "System proxy DISABLED." {
+		t.Fatalf("p disable: %q", updated.notification)
+	}
+
+	homeFile := filepath.Join(t.TempDir(), "not-a-home")
+	if err := os.WriteFile(homeFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeFile)
+	got, _ = updated.Update(keyRunes("p"))
+	updated = got.(Model)
+	if !strings.Contains(updated.notification, "Proxy toggle error") {
+		t.Fatalf("p error: %q", updated.notification)
+	}
+
+	t.Setenv("STUB_FAIL", "")
+	got, _ = updated.Update(keyRunes("c"))
+	updated = got.(Model)
+	if updated.notification != "Emergency cleanup executed. System restored." {
+		t.Fatalf("c success: %q", updated.notification)
+	}
+
+	t.Setenv("STUB_FAIL", "sudo")
+	got, _ = updated.Update(keyRunes("c"))
+	updated = got.(Model)
+	if !strings.Contains(updated.notification, "Cleanup error") {
+		t.Fatalf("c error: %q", updated.notification)
+	}
+
+	t.Setenv("STUB_FAIL", "systemctl")
+	got, _ = updated.Update(keyRunes("s"))
+	updated = got.(Model)
+	if !strings.Contains(updated.notification, "SpoofDPI start error") {
+		t.Fatalf("s error: %q", updated.notification)
 	}
 }
