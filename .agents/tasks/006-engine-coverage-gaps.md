@@ -1,6 +1,6 @@
 # Packet 006 — Engine coverage gaps
 
-**Status:** active
+**Status:** complete
 **Branch:** `packet/006-engine-coverage-gaps`
 **Author (architect):** Antigravity
 **Date:** 2026-09-27
@@ -130,5 +130,13 @@ Validation: `gofmt -l .` clean, `go vet ./...` clean, `go test ./...` pass. `go 
 
 ### Review (filled by architect — read-only)
 
-**Verdict:** `APPROVED` | `CHANGES REQUESTED`
+**Verdict:** `APPROVED`
 **Notes:**
+- Top 5 statement gaps successfully covered: `handleExclude` (100%), `handleUpdate` (100%), `handleStatus` (100%), `handleStart` (100%), and `InstallSpoofDPI` (92.0%).
+- Repository statement coverage significantly elevated from 41.3% to 65.4% (`main` package: 1.5% -> 59.1%, `engine` package: 60.9% -> 70.9%).
+- Subprocess isolation pattern cleanly handles `os.Exit` test scenarios, while temporary directory redirection and stubbing prevent command contamination.
+- Architect Flag Assessment (`handleUpdate` vs `scripts/update.sh`):
+  - Architecture Intent: Dual-path update model — delegating to `scripts/update.sh` for source checkouts and falling back to GitHub static binary downloads via curl for standalone deployments.
+  - Diagnosis of Drift: `candidatePaths` currently hardcodes paths (`.`, `~/Projects/...`, `~/src/...`, `~/.local/src/...`) but omits `~/Omacorn` and lacks dynamic Git root resolution (`git rev-parse --show-toplevel`). When executed from outside the repo root on systems cloned to `~/Omacorn`, it drifts into the curl fallback. In packet 006 tests, Grok intentionally used `chdirEmpty` to isolate the curl fallback from triggering local scripts.
+  - Recommendation: Treat as a fast-follow maintenance patch to expand `candidatePaths` or resolve via `git rev-parse --show-toplevel` / executable path. Not a blocker for this packet.
+- Verification clean: `go test -race ./...`, `gofmt -l .`, and `go vet ./...` all passing with zero issues.
