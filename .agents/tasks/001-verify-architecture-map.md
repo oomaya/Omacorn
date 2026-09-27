@@ -1,6 +1,6 @@
 # Packet 001 — Verify and complete the architecture map
 
-**Status:** queue
+**Status:** complete
 **Branch:** `packet/001-verify-architecture-map`
 **Author (architect):** Antigravity
 **Date:** 2026-09-27
@@ -31,3 +31,23 @@ The `ARCHITECTURE.md` document only.
 
 ### Expected output
 Diff to `.agents/ARCHITECTURE.md` only.
+
+---
+
+### Builder notes (filled by builder)
+
+**Plan approved:** [x]
+**Implementation summary:**
+Audited and verified all files under Layout against the active codebase:
+1. Entry point & dispatcher: `main.go` and `main_test.go` responsibilities verified (CLI dispatcher, Bubble Tea launcher, dual-tier candidate discovery).
+2. Engine subsystem: verified responsibilities across `engine.go`, `proxy.go`, `spoofdpi.go`, `exclusion.go`, `gecit.go`, and their test suites.
+3. Terminal UI: verified Bubble Tea model, Lip Gloss styling, views, and golden snapshot test infrastructure.
+4. Build & CI: documented `Makefile` targets (`all`, `build`, `test`, `lint`, `static`, `cross`, `install`, `update`, `clean`), CI workflows (`.github/workflows/ci.yml`, `release.yml`), and `go.mod` dependencies (Bubble Tea, Lip Gloss, Bubbles, golden).
+5. Architecture model: formalized Pilot & Co-Pilot (PF/PM) mutual exclusion model and desktop `environment.d` integration.
+6. Removed draft notice and verification checklist. Zero "verify" markers remain.
+
+### Review (filled by architect — read-only)
+
+**Verdict:** `APPROVED`
+**Notes:**
+All layout files, subsystem boundaries, build targets, and runtime dependencies verified against the active codebase. DRAFT notice removed. The foundational codebase map is now complete and authoritative.
