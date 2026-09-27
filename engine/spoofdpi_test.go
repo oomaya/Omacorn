@@ -53,12 +53,15 @@ func TestInstallSpoofDPIWritesUserUnit(t *testing.T) {
 	if !strings.Contains(unit, filepath.Join(bin, "spoofdpi")) {
 		t.Fatalf("unit missing binary path:\n%s", unit)
 	}
-	// This host reports a hypervisor, so the raw-cap arm stays inactive.
-	if !strings.Contains(unit, "--https-fake-count 0") {
-		t.Fatalf("expected user-space fragmentation unit:\n%s", unit)
-	}
-	if strings.Contains(unit, "--https-fake-count 1") {
-		t.Fatalf("virt host must not enable decoy injection:\n%s", unit)
+	isVirt, _ := DetectHypervisor()
+	if isVirt {
+		if !strings.Contains(unit, "--https-fake-count 0") || strings.Contains(unit, "--https-fake-count 1") {
+			t.Fatalf("virt host must enforce user-space fragmentation:\n%s", unit)
+		}
+	} else {
+		if !strings.Contains(unit, "--https-fake-count 1") || strings.Contains(unit, "--https-fake-count 0") {
+			t.Fatalf("bare-metal host with raw cap must enable decoy injection:\n%s", unit)
+		}
 	}
 }
 

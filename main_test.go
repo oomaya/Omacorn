@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -292,8 +293,15 @@ func TestHandleStatusModes(t *testing.T) {
 	if !strings.Contains(out, "inactive (Omacorn direct protection)") {
 		t.Fatalf("vpn should be inactive:\n%s", out)
 	}
-	if !strings.Contains(out, "Virtualized (vmware") {
-		t.Fatalf("this host is a vmware guest; virt line missing:\n%s", out)
+	isVirt, hypervisor := engine.DetectHypervisor()
+	if isVirt {
+		if !strings.Contains(out, fmt.Sprintf("Virtualized (%s guest", hypervisor)) {
+			t.Fatalf("virt line missing:\n%s", out)
+		}
+	} else {
+		if !strings.Contains(out, "Bare Metal") {
+			t.Fatalf("bare metal line missing:\n%s", out)
+		}
 	}
 
 	t.Setenv("SPOOF_STATE", "active")
@@ -328,11 +336,14 @@ func TestHandleStatusModes(t *testing.T) {
 
 func TestHandleStartPilots(t *testing.T) {
 	setupCmdStubs(t)
+	isVirt, hypervisor := engine.DetectHypervisor()
 
 	t.Setenv("SPOOF_STATE", "active")
 	out := captureStdout(t, func() { handleStart("gecit") })
-	if !strings.Contains(out, "WARNING: Running inside VMWARE") {
-		t.Fatalf("gecit virt warning:\n%s", out)
+	if isVirt {
+		if !strings.Contains(out, fmt.Sprintf("WARNING: Running inside %s", strings.ToUpper(hypervisor))) {
+			t.Fatalf("gecit virt warning:\n%s", out)
+		}
 	}
 	if !strings.Contains(out, "Disengaging Main Pilot") {
 		t.Fatalf("gecit handoff:\n%s", out)
@@ -357,8 +368,10 @@ func TestHandleStartPilots(t *testing.T) {
 	if !strings.Contains(out, "Main Pilot in command on "+engine.SpoofDefaultAddr) {
 		t.Fatalf("spoof success:\n%s", out)
 	}
-	if !strings.Contains(out, "Hypervisor-safe user-space proxy mode active") {
-		t.Fatalf("spoof virt line:\n%s", out)
+	if isVirt {
+		if !strings.Contains(out, "Hypervisor-safe user-space proxy mode active") {
+			t.Fatalf("spoof virt line:\n%s", out)
+		}
 	}
 
 	t.Setenv("SYSTEMCTL_FAIL", "1")
