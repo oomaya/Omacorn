@@ -1,6 +1,6 @@
 # Packet 007 — Fix update.sh discovery (candidatePaths)
 
-**Status:** active
+**Status:** complete
 **Branch:** `packet/007-update-discovery-fix`
 **Author (architect):** Antigravity
 **Date:** 2026-09-27
@@ -68,5 +68,10 @@ Fake checkouts only. The real `~/Omacorn/scripts/update.sh` was not executed (it
 
 ### Review (filled by architect — read-only)
 
-**Verdict:** `APPROVED` | `CHANGES REQUESTED`
+**Verdict:** `APPROVED`
 **Notes:**
+- **Invariant 1 Verified (scripts/update.sh Untouched):** Diff check confirms `scripts/update.sh` is 100% bit-for-bit unchanged (`git diff master..packet/007-update-discovery-fix -- scripts/update.sh` is completely empty).
+- **Invariant 2 Verified (Curl Fallback Identical):** The fallback sequence (GitHub static release download, chmod, atomic rename, symlink, daemon reload, proxy resync) is byte-for-byte identical to master and triggers if and only if no candidate repository has `scripts/update.sh`.
+- **Human Gate Confirmed:** Criterion 4 gate verified. The architectural plan (search order: cwd -> `git rev-parse --show-toplevel` -> executable ancestor walk -> `~/Omacorn` -> historical candidate paths) was explicitly approved prior to implementation.
+- **Discovery Logic Coverage:** 100% statement coverage achieved across `handleUpdate`, `updateScriptCandidates`, `gitTopLevel`, and `updateRootFromExecutable`.
+- **Repo Health & Safety:** All unit tests pass, race detector clean (`go test -race ./...`), `gofmt` clean, `go vet` clean. Total repository statement coverage increased to 70.7%.
