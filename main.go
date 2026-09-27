@@ -17,6 +17,10 @@ import (
 
 const version = "0.4.0"
 
+// osExecutable returns the running binary. Tests replace it so the executable
+// walk can be checked without relocating the test binary.
+var osExecutable = os.Executable
+
 func main() {
 	// If no arguments provided, launch the interactive Bubble Tea TUI
 	if len(os.Args) < 2 {
@@ -432,16 +436,8 @@ func handleUpdate() {
 	fmt.Println("================================================================")
 
 	home, _ := os.UserHomeDir()
-	candidatePaths := []string{
-		".",
-		filepath.Join(home, "Projects", "Omacorn"),
-		filepath.Join(home, "Projects", "omacorn"),
-		filepath.Join(home, "src", "Omacorn"),
-		filepath.Join(home, "src", "omacorn"),
-		filepath.Join(home, ".local", "src", "Omacorn"),
-	}
-
-	for _, p := range candidatePaths {
+	exe, _ := osExecutable()
+	for _, p := range updateScriptCandidates(home, exe) {
 		scriptPath := filepath.Join(p, "scripts", "update.sh")
 		if info, err := os.Stat(scriptPath); err == nil && !info.IsDir() {
 			cmd := exec.Command(scriptPath)
@@ -499,4 +495,65 @@ func handleUpdate() {
 	}
 
 	fmt.Println("✓ Successfully updated Omacorn static binary!")
+}
+
+// updateScriptCandidates lists checkout directories that may contain
+// scripts/update.sh. The first existing file wins. "." stays first so a
+// checkout you launched from is preferred over every other guess.
+func updateScriptCandidates(home, exe string) []string {
+	var paths []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		clean := filepath.Clean(p)
+		if seen[clean] {
+			return
+		}
+		seen[clean] = true
+		paths = append(paths, clean)
+	}
+
+	add(".")
+	add(gitTopLevel("."))
+	add(updateRootFromExecutable(exe))
+	for _, p := range []string{
+		filepath.Join(home, "Omacorn"),
+		filepath.Join(home, "Projects", "Omacorn"),
+		filepath.Join(home, "Projects", "omacorn"),
+		filepath.Join(home, "src", "Omacorn"),
+		filepath.Join(home, "src", "omacorn"),
+		filepath.Join(home, ".local", "src", "Omacorn"),
+	} {
+		add(p)
+	}
+	return paths
+}
+
+func gitTopLevel(dir string) string {
+	out, err := engine.RunCmd("git", "-C", dir, "rev-parse", "--show-toplevel")
+	if err != nil || out == "" {
+		return ""
+	}
+	return out
+}
+
+func updateRootFromExecutable(exe string) string {
+	if exe == "" {
+		return ""
+	}
+	dir := filepath.Dir(exe)
+	for {
+		script := filepath.Join(dir, "scripts", "update.sh")
+		info, err := os.Stat(script)
+		if err == nil && !info.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
